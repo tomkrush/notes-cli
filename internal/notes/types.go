@@ -31,4 +31,6 @@ type TaskFilters struct {
 	Today       bool
 	FilePattern string
 	SortBy      string
+	Focus       bool
+	All         bool
 }

@@ -122,6 +122,8 @@ Task Features:
   - Priority keywords: urgent, critical, important (!!!), !!, soon
 
 Task Filters:
+  --focus           Show only overdue and today's tasks (smart default)
+  --all             Show all tasks (override smart defaults)
   --tag <tag>       Filter by tag (e.g., --tag urgent)
   --priority <pri>  Filter by priority (high, medium, low)
   --overdue         Show only overdue tasks
@@ -137,6 +139,8 @@ Examples:
   notes search "API design" #work
   notes search "" #urgent
   notes tasks
+  notes tasks --focus
+  notes tasks --all
   notes tasks --tag urgent --overdue
   notes tasks --priority high --sort priority`)
 }
@@ -197,6 +201,10 @@ func parseTaskFilters(args []string) notes.TaskFilters {
 			filters.Overdue = true
 		case "--today":
 			filters.Today = true
+		case "--focus":
+			filters.Focus = true
+		case "--all":
+			filters.All = true
 		case "--file":
 			if i+1 < len(args) {
 				i++

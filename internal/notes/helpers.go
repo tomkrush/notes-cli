@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 func (s *Service) createTemplateFiles() error {
@@ -83,4 +85,73 @@ Each note type uses a structured template to maintain consistency:
 	}
 	
 	return nil
+}
+
+// formatRelativeTime converts a date to relative time display
+func formatRelativeTime(date *time.Time) string {
+	if date == nil {
+		return ""
+	}
+	
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	dateStr := date.Format("2006-01-02")
+	
+	if dateStr == today {
+		return "today"
+	}
+	
+	duration := now.Sub(*date)
+	days := int(duration.Hours() / 24)
+	
+	if days == 1 {
+		if dateStr < today {
+			return "1 day overdue"
+		}
+		return "tomorrow"
+	}
+	
+	if days > 0 && dateStr < today {
+		return fmt.Sprintf("%d days overdue", days)
+	}
+	
+	if days < 0 {
+		futureDays := -days
+		if futureDays == 1 {
+			return "tomorrow"
+		}
+		return fmt.Sprintf("in %d days", futureDays)
+	}
+	
+	return date.Format("Jan 2")
+}
+
+// detectCurrentContext checks if we're in a specific project/context
+func (s *Service) detectCurrentContext() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	
+	// Check if we're inside the notes directory structure
+	relPath, err := filepath.Rel(s.config.BaseDir, cwd)
+	if err != nil || strings.HasPrefix(relPath, "..") {
+		return ""
+	}
+	
+	// If we're in a specific subdirectory, return it as context
+	parts := strings.Split(relPath, string(filepath.Separator))
+	if len(parts) > 0 && parts[0] != "." {
+		return parts[0]
+	}
+	
+	return ""
+}
+
+// getTreeChars returns appropriate tree drawing characters
+func getTreeChars(isLast bool) string {
+	if isLast {
+		return "└─ "
+	}
+	return "├─ "
 }

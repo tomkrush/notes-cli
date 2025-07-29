@@ -163,7 +163,23 @@ func (s *Service) List() error {
 }
 
 func (s *Service) ShowTasks(filters TaskFilters) error {
-	fmt.Printf("\033[1;36m📋 Incomplete Tasks\033[0m\n")
+	// Apply smart defaults if no explicit flags
+	if !filters.All && !filters.Focus && !filters.Overdue && !filters.Today && len(filters.Tags) == 0 && filters.Priority == "" && filters.FilePattern == "" {
+		// Check current context
+		context := s.detectCurrentContext()
+		if context != "" {
+			filters.FilePattern = context
+			fmt.Printf("\033[1;36m📋 Tasks in %s/\033[0m\n", context)
+		} else {
+			// Default to focus mode (overdue + today)
+			filters.Focus = true
+			fmt.Printf("\033[1;36m📋 Focus: Overdue & Today's Tasks\033[0m\n")
+		}
+	} else if filters.Focus {
+		fmt.Printf("\033[1;36m📋 Focus: Overdue & Today's Tasks\033[0m\n")
+	} else {
+		fmt.Printf("\033[1;36m📋 All Incomplete Tasks\033[0m\n")
+	}
 	fmt.Printf("\033[90m" + strings.Repeat("─", 50) + "\033[0m\n\n")
 	
 	allTasks := []TaskInfo{}
@@ -190,6 +206,12 @@ func (s *Service) ShowTasks(filters TaskFilters) error {
 		if err != nil {
 			continue
 		}
+	}
+	
+	// Apply focus filter if needed
+	if filters.Focus {
+		filters.Overdue = true
+		filters.Today = true
 	}
 	
 	filteredTasks := s.filterTasks(allTasks, filters)
@@ -233,15 +255,16 @@ func (s *Service) ShowTasks(filters TaskFilters) error {
 			now := time.Now()
 			todayStr := now.Format("2006-01-02")
 			dueDateStr := task.DueDate.Format("2006-01-02")
+			relativeTime := formatRelativeTime(task.DueDate)
 			
 			if dueDateStr < todayStr {
-				dueDateStr = fmt.Sprintf(" \033[1;31m(overdue: %s)\033[0m", task.DueDate.Format("Jan 2"))
+				dueDateStr = fmt.Sprintf(" \033[1;31m(%s)\033[0m", relativeTime)
 				overdueTasks++
 			} else if dueDateStr == todayStr {
-				dueDateStr = fmt.Sprintf(" \033[1;33m(due today)\033[0m")
+				dueDateStr = fmt.Sprintf(" \033[1;33m(due %s)\033[0m", relativeTime)
 				todayTasks++
 			} else {
-				dueDateStr = fmt.Sprintf(" \033[90m(due: %s)\033[0m", task.DueDate.Format("Jan 2"))
+				dueDateStr = fmt.Sprintf(" \033[90m(due %s)\033[0m", relativeTime)
 			}
 		}
 		
@@ -254,8 +277,14 @@ func (s *Service) ShowTasks(filters TaskFilters) error {
 			taskDisplay = taskDisplay[:57] + "..."
 		}
 		
-		fmt.Printf("  %s\033[90mL%d:\033[0m %s%s\033[0m %s%s\n", 
-			indentStr, task.Line, priorityColor, priority, taskDisplay, dueDateStr)
+		// Use tree characters for better visual hierarchy
+		treeChar := "├─"
+		if task.Indent > 0 {
+			treeChar = "└─"
+		}
+		
+		fmt.Printf("  %s%s %s%s\033[0m %s%s \033[90m(L%d)\033[0m\n", 
+			indentStr, treeChar, priorityColor, priority, taskDisplay, dueDateStr, task.Line)
 	}
 	
 	fmt.Println()
@@ -659,12 +688,27 @@ func (s *Service) matchesFilters(task TaskInfo, filters TaskFilters, now time.Ti
 		}
 	}
 	
-	if filters.Overdue && (task.DueDate == nil || task.DueDate.Format("2006-01-02") >= now.Format("2006-01-02")) {
-		return false
-	}
-	
-	if filters.Today && (task.DueDate == nil || task.DueDate.Format("2006-01-02") != now.Format("2006-01-02")) {
-		return false
+	// Handle focus mode (both overdue and today) with OR logic
+	if filters.Overdue && filters.Today {
+		if task.DueDate == nil {
+			return false
+		}
+		taskDateStr := task.DueDate.Format("2006-01-02")
+		todayStr := now.Format("2006-01-02")
+		isOverdue := taskDateStr < todayStr
+		isToday := taskDateStr == todayStr
+		if !isOverdue && !isToday {
+			return false
+		}
+	} else {
+		// Handle individual filters with AND logic
+		if filters.Overdue && (task.DueDate == nil || task.DueDate.Format("2006-01-02") >= now.Format("2006-01-02")) {
+			return false
+		}
+		
+		if filters.Today && (task.DueDate == nil || task.DueDate.Format("2006-01-02") != now.Format("2006-01-02")) {
+			return false
+		}
 	}
 	
 	if filters.FilePattern != "" && !strings.Contains(strings.ToLower(task.FilePath), strings.ToLower(filters.FilePattern)) {

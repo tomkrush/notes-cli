@@ -16,7 +16,7 @@ import (
 	"notes/internal/templates"
 )
 
-var directories = []string{"daily", "projects", "meetings", "design", "learning", "todos", "templates", "archive"}
+var directories = []string{"daily", "projects", "meetings", "design", "learning", "todos", "archive"}
 
 type TaskInfo struct {
 	Text     string
@@ -54,10 +54,6 @@ func (s *Service) Initialize() error {
 		if _, err := os.Stat(dirPath); err == nil {
 			fmt.Printf("✓ Created directory: %s/\n", dir)
 		}
-	}
-	
-	if err := s.createTemplateFiles(); err != nil {
-		return err
 	}
 	
 	if err := s.createReadme(); err != nil {

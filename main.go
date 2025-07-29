@@ -80,10 +80,10 @@ func main() {
 			showSearchHelp()
 			os.Exit(1)
 		}
-		
+
 		query := ""
 		var tags []string
-		
+
 		for _, arg := range args {
 			if strings.HasPrefix(arg, "#") {
 				tags = append(tags, arg)
@@ -93,7 +93,7 @@ func main() {
 				query += " " + arg
 			}
 		}
-		
+
 		if err := service.Search(query, tags); err != nil {
 			fmt.Fprintf(os.Stderr, "Error searching notes: %v\n", err)
 			os.Exit(1)
@@ -108,58 +108,94 @@ func main() {
 }
 
 func showHelp() {
-	fmt.Println(`notes - Organized note-taking with templates
+	fmt.Println(`notes - Organized note-taking with enhanced markdown tasks
 
-Usage:
+OVERVIEW
+  This tool manages markdown files with enhanced task tracking. You write
+  standard markdown with regular syntax, but tasks get special powers.
+
+BASIC USAGE
   notes init                          # Initialize folder structure
-  notes create <type> [title]         # Create a new note
+  notes create <type> [title]         # Create a new note  
   notes list                          # List existing notes
-  notes tasks [filters]               # Show incomplete tasks with due dates
+  notes tasks [filters]               # Show enhanced task views
   notes time <command> [args]         # Time tracking for tasks
   notes search <query> [#tag ...]     # Search notes by content and tags
   notes save [message]                # Commit all changes to git
-  notes help                          # Show this help
 
-Available note types:
+MARKDOWN SUPPORT
+  All files are standard markdown. Learn markdown basics at:
+  https://www.markdownguide.org/basic-syntax/
+  
+  Standard markdown works normally:
+  # Headings, **bold**, *italic*, [links](url), etc.
+
+ENHANCED TASKS
+  Standard markdown tasks work: - [ ] Basic task
+  But this tool adds powerful enhancements when you use special syntax:
+
+  Due dates:     - [ ] Task due:2024-12-31
+  Estimates:     - [ ] Task est:2h #urgent  
+  Tags:          - [ ] Task #urgent #work
+  Priority:      - [ ] URGENT task !!! (keywords: urgent, critical, important)
+  
+  When you track time, the tool automatically adds structured logs:
+  - [ ] Fix auth bug est:2h #backend
+    Time log:
+    • 2024-01-15 09:30-10:45 (1h15m) - Work session
+    • 2024-01-15 14:00-15:30 (1h30m) - Testing fixes
+    Remaining: ~15m
+
+NOTE TYPES (Templates)
   daily    - Daily notes (auto-dated)
-  project  - Project documentation
+  project  - Project documentation  
   meeting  - Meeting notes
   design   - Technical design documents
   learning - Learning notes and tutorials
 
-Task Features:
-  - Add due dates: "- [ ] Task due:2024-12-31"
-  - Add estimates: "- [ ] Task est:2h #urgent"
-  - Add tags: "- [ ] Task #urgent #work"
-  - Priority keywords: urgent, critical, important (!!!), !!, soon
-  - Time tracking with structured logs (see 'notes time help')
+TASK VIEWS (CLI Commands)
+  notes tasks                    # Smart context-aware view
+  notes tasks --summary          # Overview: counts + top 5 critical
+  notes tasks --focus            # Overdue + today's tasks only
+  notes tasks --full             # Detailed view of all tasks
+  notes tasks --all              # Override defaults, show everything
 
-Task Filters:
-  --summary         Show overview with counts and top 5 critical tasks
-  --focus           Show only overdue and today's tasks (smart default)
-  --full            Show detailed view of all tasks
-  --all             Show all tasks (override smart defaults)
-  --tag <tag>       Filter by tag (e.g., --tag urgent)
-  --priority <pri>  Filter by priority (high, medium, low)
+TASK FILTERS (CLI Commands)
+  --tag <tag>       Filter by tag (--tag urgent)
+  --priority <pri>  Filter by priority (high, medium, low)  
   --overdue         Show only overdue tasks
   --today           Show only tasks due today
-  --file <pattern>  Filter by file pattern (e.g., --file daily/)
+  --file <pattern>  Filter by file pattern (--file daily/)
   --sort <method>   Sort by priority, due, or file
 
-Examples:
+TIME TRACKING (CLI Commands)
+  notes time start <task>    Find task and start timer
+  notes time pause           Pause current timer
+  notes time resume          Resume paused timer  
+  notes time stop            Stop timer, auto-log to markdown
+  notes time status          Show current timer status
+
+EXAMPLES
+  # Create and manage notes
   notes init
   notes create daily
-  notes create project "My New Project"
-  notes create meeting "Team Standup"
-  notes tasks                                    # Smart defaults
-  notes tasks --summary                          # Overview with top 5
-  notes tasks --focus                            # Overdue + today only
-  notes time start "Fix authentication bug"     # Start timer
-  notes time status                              # Check current timer
-  notes time stop                                # Stop and log time
-  notes search "API design" #work
-  notes tasks --tag urgent --overdue
-  notes save "Updated project docs"`)
+  notes create project "Mobile App Redesign"
+  
+  # View tasks with different perspectives
+  notes tasks                        # Smart defaults
+  notes tasks --summary              # Quick overview
+  notes tasks --tag urgent --overdue # Filtered view
+  
+  # Track time on tasks  
+  notes time start "Fix login bug"   # Start timer
+  notes time status                  # Check progress
+  notes time stop                    # Stop and log
+  
+  # Search and save
+  notes search "API" #backend
+  notes save "Updated project tasks"
+
+For detailed time tracking help: notes time help`)
 }
 
 func showCreateHelp() {
@@ -194,31 +230,83 @@ Examples:
 }
 
 func showTimeHelp() {
-	fmt.Println(`Usage: notes time <command> [args]
+	fmt.Println(`notes time - Time tracking for markdown tasks
 
-Time tracking commands:
-  start <task>     Start timing a task (searches for matching task text)
-  pause            Pause current active timer
+OVERVIEW
+  Track time on tasks using CLI commands. Time logs are automatically
+  written to your markdown files in a structured, human-readable format.
+
+CLI COMMANDS
+  start <task>     Find task by partial text match and start timer
+  pause            Pause current active timer  
   resume [task]    Resume paused timer or start new one
-  stop             Stop current timer and save time entry
+  stop             Stop timer and automatically log time to markdown
   status           Show current timer status
-  report [period]  Show time tracking report (today, week, month)
+  report [period]  Time reports (coming soon)
 
-Examples:
-  notes time start "Fix authentication bug"
-  notes time pause
-  notes time resume
-  notes time stop
-  notes time status
-  notes time report today`)
+HOW IT WORKS
+  1. You have tasks in markdown: - [ ] Fix authentication bug est:2h
+  2. Start timer: notes time start "Fix auth"
+  3. Tool finds task and starts timing
+  4. When you stop, it automatically adds structured time logs:
+
+  - [ ] Fix authentication bug est:2h #urgent
+    Time log:
+    • 2024-01-15 09:30-10:45 (1h15m) - Work session
+    • 2024-01-15 14:00-15:30 (1h30m) - Testing fixes
+    Remaining: ~15m
+
+SMART FEATURES  
+  • Task finding: Partial text search finds tasks automatically
+  • Persistent timers: Timers survive app restarts and reboots
+  • Progress tracking: Shows worked time vs estimates in task views
+  • Clean integration: Time logs don't clutter your markdown
+
+WORKFLOW EXAMPLES
+  # Start working on a task
+  $ notes time start "Fix login"
+  ⏰ Started timer for: Fix login validation
+  Location: projects/auth.md:L23
+  
+  # Check what you're working on  
+  $ notes time status
+  🕐 RUNNING: Fix login validation
+  Elapsed: 1h23m • Location: projects/auth.md:L23
+  
+  # Take a break
+  $ notes time pause
+  ⏸️ Paused timer for: Fix login validation
+  Elapsed time: 1h23m
+  
+  # Get back to work
+  $ notes time resume  
+  ▶️ Resumed timer for: Fix login validation
+  
+  # Finish and log time
+  $ notes time stop
+  ⏹️ Stopped timer for: Fix login validation  
+  Time logged: 1h45m
+
+INTEGRATION WITH TASK VIEWS
+  Time tracking integrates with all task views:
+  
+  notes tasks --summary    # Shows time progress in overview
+  notes tasks --focus      # Time info on urgent tasks
+  
+  Tasks display time info:
+  ├─ 🔴 Fix auth bug [1h30m/2h] ~2h (L45)    # Progress vs estimate
+  ├─ 🟡 Add tests [45m worked] ~1h (L67)     # Time worked so far  
+  └─ ⚪ Update docs [2h completed] ~1h30m     # Over estimate, done
+
+The goal: seamless time tracking that enhances your markdown workflow.`)
 }
 
 func parseTaskFilters(args []string) notes.TaskFilters {
 	filters := notes.TaskFilters{}
-	
+
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		
+
 		switch arg {
 		case "--tag":
 			if i+1 < len(args) {
@@ -258,6 +346,6 @@ func parseTaskFilters(args []string) notes.TaskFilters {
 			}
 		}
 	}
-	
+
 	return filters
 }

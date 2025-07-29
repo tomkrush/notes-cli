@@ -53,6 +53,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error showing tasks: %v\n", err)
 			os.Exit(1)
 		}
+	case "status":
+		if err := service.ShowStatus(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error showing status: %v\n", err)
+			os.Exit(1)
+		}
 	case "save":
 		var message string
 		if len(args) > 0 {
@@ -119,6 +124,7 @@ BASIC USAGE
   notes create <type> [title]         # Create a new note  
   notes list                          # List existing notes
   notes tasks [filters]               # Show enhanced task views
+  notes status                        # Show changed notes and todos
   notes time <command> [args]         # Time tracking for tasks
   notes search <query> [#tag ...]     # Search notes by content and tags
   notes save [message]                # Commit all changes to git
@@ -186,6 +192,9 @@ EXAMPLES
   notes tasks                        # Smart defaults
   notes tasks --summary              # Quick overview
   notes tasks --tag urgent --overdue # Filtered view
+  
+  # Check what's changed
+  notes status                       # See changed notes and todos
   
   # Track time on tasks  
   notes time start "Fix login bug"   # Start timer

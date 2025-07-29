@@ -1167,3 +1167,325 @@ func (s *Service) showTimeReport(period string) error {
 	s.formatTimeReport(report)
 	return nil
 }
+
+// ShowStatus displays a summary of changed notes and todos
+func (s *Service) ShowStatus() error {
+	fmt.Printf("\033[1;36m📊 Notes Status\033[0m\n")
+	fmt.Printf("\033[90m" + strings.Repeat("─", 50) + "\033[0m\n\n")
+	
+	// Get git status for changed files
+	changedFiles, err := s.getChangedFiles()
+	if err != nil {
+		fmt.Printf("\033[90mCould not check git status: %v\033[0m\n", err)
+	} else {
+		s.showChangedNotes(changedFiles)
+	}
+	
+	// Show changed todos
+	s.showChangedTodos(changedFiles)
+	
+	return nil
+}
+
+// getChangedFiles returns files that have been modified according to git
+func (s *Service) getChangedFiles() (map[string]string, error) {
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = s.config.BaseDir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	
+	changedFiles := make(map[string]string)
+	lines := strings.Split(string(output), "\n")
+	
+	for _, line := range lines {
+		if len(line) < 3 {
+			continue
+		}
+		
+		status := strings.TrimSpace(line[:2])
+		filepath := strings.TrimSpace(line[3:])
+		
+		if strings.HasSuffix(filepath, ".md") || strings.HasSuffix(filepath, ".txt") {
+			changedFiles[filepath] = status
+		}
+	}
+	
+	return changedFiles, nil
+}
+
+// showChangedNotes displays the changed notes summary  
+func (s *Service) showChangedNotes(changedFiles map[string]string) {
+	if len(changedFiles) == 0 {
+		fmt.Printf("\033[1;32m✅ No changed notes\033[0m\n")
+		fmt.Printf("\033[90mAll notes are up to date\033[0m\n\n")
+		return
+	}
+	
+	fmt.Printf("\033[1mChanged Notes (%d):\033[0m\n", len(changedFiles))
+	
+	// Group by status
+	modified := []string{}
+	added := []string{}
+	untracked := []string{}
+	
+	for filepath, status := range changedFiles {
+		switch {
+		case strings.Contains(status, "M"):
+			modified = append(modified, filepath)
+		case strings.Contains(status, "A"):
+			added = append(added, filepath)
+		case strings.Contains(status, "?"):
+			untracked = append(untracked, filepath)
+		}
+	}
+	
+	// Sort each category
+	sort.Strings(modified)
+	sort.Strings(added)
+	sort.Strings(untracked)
+	
+	// Display modified files
+	if len(modified) > 0 {
+		fmt.Printf("  \033[33mModified:\033[0m\n")
+		for _, file := range modified {
+			summary := s.getNoteSummary(file)
+			fmt.Printf("    📝 %s%s\n", file, summary)
+		}
+	}
+	
+	// Display added files
+	if len(added) > 0 {
+		fmt.Printf("  \033[32mAdded:\033[0m\n")
+		for _, file := range added {
+			summary := s.getNoteSummary(file)
+			fmt.Printf("    📄 %s%s\n", file, summary)
+		}
+	}
+	
+	// Display untracked files  
+	if len(untracked) > 0 {
+		fmt.Printf("  \033[36mUntracked:\033[0m\n")
+		for _, file := range untracked {
+			summary := s.getNoteSummary(file)
+			fmt.Printf("    📋 %s%s\n", file, summary)
+		}
+	}
+	
+	fmt.Println()
+}
+
+// getNoteSummary returns a brief summary of what's in a note file
+func (s *Service) getNoteSummary(relativeFilePath string) string {
+	fullPath := filepath.Join(s.config.BaseDir, relativeFilePath)
+	
+	file, err := os.Open(fullPath)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	
+	scanner := bufio.NewScanner(file)
+	lineCount := 0
+	taskCount := 0
+	var title string
+	
+	taskPattern := regexp.MustCompile(`^(\s*)-\s*\[\s*[\sx]\s*\]\s*(.*)$`)
+	
+	for scanner.Scan() && lineCount < 20 { // Only scan first 20 lines for performance
+		line := scanner.Text()
+		lineCount++
+		
+		// Get title (first non-empty line that starts with # or is substantial)
+		if title == "" {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "# ") {
+				title = strings.TrimPrefix(trimmed, "# ")
+				if len(title) > 30 {
+					title = title[:27] + "..."
+				}
+			} else if len(trimmed) > 10 && !strings.HasPrefix(trimmed, "---") {
+				title = trimmed
+				if len(title) > 30 {
+					title = title[:27] + "..."
+				}
+			}
+		}
+		
+		// Count tasks
+		if taskPattern.MatchString(line) {
+			taskCount++
+		}
+	}
+	
+	var summary []string
+	if title != "" {
+		summary = append(summary, fmt.Sprintf("\"%s\"", title))
+	}
+	if taskCount > 0 {
+		summary = append(summary, fmt.Sprintf("%d task%s", taskCount, pluralize(taskCount)))
+	}
+	
+	if len(summary) > 0 {
+		return " \033[90m(" + strings.Join(summary, ", ") + ")\033[0m"
+	}
+	
+	return ""
+}
+
+// showChangedTodos analyzes git diffs to show actual todo changes
+func (s *Service) showChangedTodos(changedFiles map[string]string) {
+	if len(changedFiles) == 0 {
+		return
+	}
+	
+	fmt.Printf("\033[1mTodo Changes:\033[0m\n")
+	
+	newTodos := []string{}
+	completedTodos := []string{}
+	modifiedTodos := []string{}
+	
+	// Analyze each changed file for todo changes
+	for filepath, status := range changedFiles {
+		changes := s.analyzeTodoChanges(filepath, status)
+		newTodos = append(newTodos, changes.New...)
+		completedTodos = append(completedTodos, changes.Completed...)
+		modifiedTodos = append(modifiedTodos, changes.Modified...)
+	}
+	
+	// Display changes
+	totalChanges := len(newTodos) + len(completedTodos) + len(modifiedTodos)
+	if totalChanges == 0 {
+		fmt.Printf("  \033[90mNo todo changes in modified files\033[0m\n\n")
+		return
+	}
+	
+	// Show new todos
+	if len(newTodos) > 0 {
+		fmt.Printf("  \033[32mNew todos (%d):\033[0m\n", len(newTodos))
+		for _, todo := range newTodos {
+			fmt.Printf("    + %s\n", todo)
+		}
+		fmt.Println()
+	}
+	
+	// Show completed todos  
+	if len(completedTodos) > 0 {
+		fmt.Printf("  \033[33mCompleted todos (%d):\033[0m\n", len(completedTodos))
+		for _, todo := range completedTodos {
+			fmt.Printf("    ✓ %s\n", todo)
+		}
+		fmt.Println()
+	}
+	
+	// Show modified todos
+	if len(modifiedTodos) > 0 {
+		fmt.Printf("  \033[36mModified todos (%d):\033[0m\n", len(modifiedTodos))
+		for _, todo := range modifiedTodos {
+			fmt.Printf("    ~ %s\n", todo)
+		}
+		fmt.Println()
+	}
+}
+
+type TodoChanges struct {
+	New       []string
+	Completed []string
+	Modified  []string
+}
+
+// analyzeTodoChanges examines git diff to detect todo changes
+func (s *Service) analyzeTodoChanges(relativeFilePath, status string) TodoChanges {
+	changes := TodoChanges{
+		New:       []string{},
+		Completed: []string{},
+		Modified:  []string{},
+	}
+	
+	// Skip untracked files for diff analysis
+	if strings.Contains(status, "?") {
+		// For new files, just extract all todos as "new"
+		fullPath := filepath.Join(s.config.BaseDir, relativeFilePath)
+		tasks := s.extractTasks(fullPath)
+		for _, task := range tasks {
+			todoText := s.formatTodoForStatus(task, relativeFilePath)
+			changes.New = append(changes.New, todoText)
+		}
+		return changes
+	}
+	
+	// Get git diff for the file
+	cmd := exec.Command("git", "diff", "HEAD", "--", relativeFilePath)
+	cmd.Dir = s.config.BaseDir
+	output, err := cmd.Output()
+	if err != nil {
+		return changes
+	}
+	
+	// Parse diff output for todo changes
+	diffLines := strings.Split(string(output), "\n")
+	
+	todoPattern := regexp.MustCompile(`^[\+\-]\s*-\s*\[\s*([\sx]?)\s*\]\s*(.*)$`)
+	
+	for _, line := range diffLines {
+		if match := todoPattern.FindStringSubmatch(line); match != nil {
+			isCompleted := strings.TrimSpace(match[1]) == "x"
+			todoText := strings.TrimSpace(match[2])
+			changeType := string(line[0]) // '+' or '-'
+			
+			if changeType == "+" {
+				// Added line
+				if isCompleted {
+					// Added a completed todo (probably moved from incomplete)
+					changes.Completed = append(changes.Completed, 
+						fmt.Sprintf("%s \033[90m(%s)\033[0m", todoText, relativeFilePath))
+				} else {
+					// Added a new incomplete todo
+					changes.New = append(changes.New, 
+						fmt.Sprintf("%s \033[90m(%s)\033[0m", todoText, relativeFilePath))
+				}
+			} else if changeType == "-" {
+				// Look ahead for corresponding + line to detect modifications
+				// For now, just treat as modified
+				if !isCompleted {
+					changes.Modified = append(changes.Modified, 
+						fmt.Sprintf("%s \033[90m(%s)\033[0m", todoText, relativeFilePath))
+				}
+			}
+		}
+	}
+	
+	// Remove duplicates and clean up
+	changes.New = s.removeDuplicates(changes.New)
+	changes.Completed = s.removeDuplicates(changes.Completed)
+	changes.Modified = s.removeDuplicates(changes.Modified)
+	
+	return changes
+}
+
+// formatTodoForStatus formats a todo for status display
+func (s *Service) formatTodoForStatus(task TaskInfo, relativeFilePath string) string {
+	todoText := task.Text
+	if len(todoText) > 60 {
+		todoText = todoText[:57] + "..."
+	}
+	
+	return fmt.Sprintf("%s \033[90m(%s:L%d)\033[0m", todoText, relativeFilePath, task.Line)
+}
+
+// removeDuplicates removes duplicate strings from a slice
+func (s *Service) removeDuplicates(items []string) []string {
+	seen := make(map[string]bool)
+	result := []string{}
+	
+	for _, item := range items {
+		if !seen[item] {
+			seen[item] = true
+			result = append(result, item)
+		}
+	}
+	
+	return result
+}
+

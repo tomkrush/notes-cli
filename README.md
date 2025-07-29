@@ -1,27 +1,43 @@
 # notes
 
-A CLI tool for organized note-taking with templates and task management. Designed for developers who prefer markdown files and git-based workflows over heavy note-taking apps.
+A CLI tool for organized note-taking with enhanced markdown tasks and time tracking. Designed for developers who prefer markdown files and git-based workflows.
 
 ## Features
 
+- **Enhanced markdown tasks** with due dates, estimates, tags, and priorities
+- **Smart time tracking** with structured logs written to your markdown files
 - Template-based note creation for different contexts
-- Task extraction and due date tracking across all notes
 - Advanced task filtering and smart views (summary, focus modes)
-- **Time tracking with structured markdown logs**
 - Full-text search with tag filtering
 - Git integration for version control
 - Lightweight and fast - just markdown files
 
-## Usage
+## Quick Start
 
 ```bash
-notes init                          # Initialize folder structure
-notes create <type> [title]         # Create a new note
-notes list                          # List existing notes
-notes tasks [filters]               # Show incomplete tasks with smart views
-notes time <command> [args]         # Time tracking for tasks
-notes search <query> [#tag ...]     # Search notes by content and tags
-notes save [message]                # Commit all changes to git
+# Get started in 30 seconds
+notes init                    # Set up your notes folder
+notes create daily            # Create today's daily note
+notes tasks                   # View your tasks
+notes time start "task text"  # Start tracking time on a task
+
+# Get help when you need it
+notes --help                  # Basic help and getting started
+notes help tasks              # Detailed help for task management
+notes help time               # Detailed help for time tracking
+```
+
+## All Commands
+
+```bash
+notes init                         # Initialize folder structure
+notes create <type> [title]       # Create a new note
+notes list                         # List existing notes
+notes tasks [options]              # Show tasks with filters
+notes status                       # Show changed notes and todos
+notes time <command>               # Time tracking (start/stop/status)
+notes search <query> [#tags]       # Search notes by content/tags
+notes save [message]               # Commit changes to git
 ```
 
 ## Note Types
@@ -32,14 +48,20 @@ notes save [message]                # Commit all changes to git
 - `design` - Technical design documents
 - `learning` - Learning notes and tutorials
 
-## Task Management
+## Enhanced Markdown Tasks
+
+Standard markdown tasks work normally, but this tool adds powerful enhancements:
 
 ### Task Syntax
-- Basic task: `- [ ] Task description`
-- Due date: `- [ ] Complete project due:2024-12-31`
-- Estimate: `- [ ] Fix bug est:2h #urgent`
-- Tags: `- [ ] Important task #urgent #work`
-- Priority: Use keywords like `urgent`, `critical`, `important`, `!!!`, `!!`, or `soon`
+```markdown
+- [ ] Basic task
+- [ ] Task with due date due:2024-12-31
+- [ ] Task with estimate est:2h #urgent  
+- [ ] Task with tags #urgent #work #backend
+- [ ] URGENT high priority task !!!
+```
+
+**Priority keywords**: `urgent`, `critical`, `important` = high priority
 
 ### Smart Task Views
 Tasks feature intelligent defaults and multiple view modes:
@@ -91,7 +113,7 @@ notes time pause                              # Pause current timer
 notes time resume                             # Resume paused timer
 notes time stop                               # Stop timer and save entry
 notes time status                             # Show current timer status
-notes time report [period]                    # Time reports (coming soon)
+notes time report [period]                    # Time reports (today, week, month)
 ```
 
 ### Time Log Format
@@ -153,6 +175,29 @@ $ notes time stop
 ⏹️ Stopped timer for: Fix authentication bug
 Time logged: 1h45m
 ```
+
+## Help System
+
+The notes CLI features a progressive help system that shows you information when you need it:
+
+### Basic Help
+```bash
+notes --help              # Overview and quick start
+```
+Shows essential commands and getting started steps without overwhelming details.
+
+### Command-Specific Help
+```bash
+notes help create         # Note types and creation
+notes help tasks          # Task views and filters  
+notes help time           # Time tracking system
+notes help markdown       # Enhanced markdown syntax
+notes help search         # Search and filtering
+```
+Get detailed help for specific features when you need to dive deeper.
+
+### Contextual Help
+Error messages include relevant help suggestions, and commands show usage when called incorrectly.
 
 ## Installation
 

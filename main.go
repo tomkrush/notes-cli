@@ -48,7 +48,8 @@ func main() {
 			os.Exit(1)
 		}
 	case "tasks":
-		if err := service.ShowTasks(); err != nil {
+		filters := parseTaskFilters(args)
+		if err := service.ShowTasks(filters); err != nil {
 			fmt.Fprintf(os.Stderr, "Error showing tasks: %v\n", err)
 			os.Exit(1)
 		}
@@ -103,7 +104,7 @@ Usage:
   notes init                          # Initialize folder structure
   notes create <type> [title]         # Create a new note
   notes list                          # List existing notes
-  notes tasks                         # Show incomplete tasks with due dates
+  notes tasks [filters]               # Show incomplete tasks with due dates
   notes search <query> [#tag ...]     # Search notes by content and tags
   notes save [message]                # Commit all changes to git
   notes help                          # Show this help
@@ -120,6 +121,14 @@ Task Features:
   - Add tags: "- [ ] Task #urgent #work"
   - Priority keywords: urgent, critical, important (!!!), !!, soon
 
+Task Filters:
+  --tag <tag>       Filter by tag (e.g., --tag urgent)
+  --priority <pri>  Filter by priority (high, medium, low)
+  --overdue         Show only overdue tasks
+  --today           Show only tasks due today
+  --file <pattern>  Filter by file pattern (e.g., --file daily/)
+  --sort <method>   Sort by priority, due, or file
+
 Examples:
   notes init
   notes create daily
@@ -127,7 +136,9 @@ Examples:
   notes create meeting "Team Standup"
   notes search "API design" #work
   notes search "" #urgent
-  notes tasks`)
+  notes tasks
+  notes tasks --tag urgent --overdue
+  notes tasks --priority high --sort priority`)
 }
 
 func showCreateHelp() {
@@ -159,4 +170,45 @@ Examples:
   notes search "" #work              # Find all notes with #work tag
   notes search "meeting" #urgent     # Find "meeting" text with #urgent tag
   notes search #project #active      # Find notes with both tags`)
+}
+
+func parseTaskFilters(args []string) notes.TaskFilters {
+	filters := notes.TaskFilters{}
+	
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		
+		switch arg {
+		case "--tag":
+			if i+1 < len(args) {
+				i++
+				tag := args[i]
+				if !strings.HasPrefix(tag, "#") {
+					tag = "#" + tag
+				}
+				filters.Tags = append(filters.Tags, tag)
+			}
+		case "--priority":
+			if i+1 < len(args) {
+				i++
+				filters.Priority = args[i]
+			}
+		case "--overdue":
+			filters.Overdue = true
+		case "--today":
+			filters.Today = true
+		case "--file":
+			if i+1 < len(args) {
+				i++
+				filters.FilePattern = args[i]
+			}
+		case "--sort":
+			if i+1 < len(args) {
+				i++
+				filters.SortBy = args[i]
+			}
+		}
+	}
+	
+	return filters
 }

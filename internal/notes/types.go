@@ -23,3 +23,12 @@ func ValidateNoteType(n NoteType) error {
 		return fmt.Errorf("invalid note type: %s. Available types: daily, project, meeting, design, learning", n)
 	}
 }
+
+type TaskFilters struct {
+	Tags        []string
+	Priority    string
+	Overdue     bool
+	Today       bool
+	FilePattern string
+	SortBy      string
+}

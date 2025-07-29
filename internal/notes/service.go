@@ -162,7 +162,7 @@ func (s *Service) List() error {
 	return nil
 }
 
-func (s *Service) ShowTasks() error {
+func (s *Service) ShowTasks(filters TaskFilters) error {
 	fmt.Printf("\033[1;36m📋 Incomplete Tasks\033[0m\n")
 	fmt.Printf("\033[90m" + strings.Repeat("─", 50) + "\033[0m\n\n")
 	
@@ -192,30 +192,26 @@ func (s *Service) ShowTasks() error {
 		}
 	}
 	
-	if len(allTasks) == 0 {
-		fmt.Printf("\033[1;32m✅ No incomplete tasks found!\033[0m\n")
-		fmt.Printf("\033[90mYou're all caught up! 🎉\033[0m\n")
+	filteredTasks := s.filterTasks(allTasks, filters)
+	
+	if len(filteredTasks) == 0 {
+		if len(allTasks) == 0 {
+			fmt.Printf("\033[1;32m✅ No incomplete tasks found!\033[0m\n")
+			fmt.Printf("\033[90mYou're all caught up! 🎉\033[0m\n")
+		} else {
+			fmt.Printf("\033[1;33m⚠ No tasks match your filters\033[0m\n")
+			fmt.Printf("\033[90mTry adjusting your filter criteria\033[0m\n")
+		}
 		return nil
 	}
 	
-	sort.Slice(allTasks, func(i, j int) bool {
-		if allTasks[i].DueDate != nil && allTasks[j].DueDate != nil {
-			return allTasks[i].DueDate.Before(*allTasks[j].DueDate)
-		}
-		if allTasks[i].DueDate != nil {
-			return true
-		}
-		if allTasks[j].DueDate != nil {
-			return false
-		}
-		return allTasks[i].FilePath < allTasks[j].FilePath
-	})
+	s.sortTasks(filteredTasks, filters.SortBy)
 	
 	currentFile := ""
 	overdueTasks := 0
 	todayTasks := 0
 	
-	for _, task := range allTasks {
+	for _, task := range filteredTasks {
 		relPath, _ := filepath.Rel(s.config.BaseDir, task.FilePath)
 		
 		if relPath != currentFile {
@@ -235,10 +231,13 @@ func (s *Service) ShowTasks() error {
 		
 		if task.DueDate != nil {
 			now := time.Now()
-			if task.DueDate.Before(now) {
+			todayStr := now.Format("2006-01-02")
+			dueDateStr := task.DueDate.Format("2006-01-02")
+			
+			if dueDateStr < todayStr {
 				dueDateStr = fmt.Sprintf(" \033[1;31m(overdue: %s)\033[0m", task.DueDate.Format("Jan 2"))
 				overdueTasks++
-			} else if task.DueDate.Format("2006-01-02") == now.Format("2006-01-02") {
+			} else if dueDateStr == todayStr {
 				dueDateStr = fmt.Sprintf(" \033[1;33m(due today)\033[0m")
 				todayTasks++
 			} else {
@@ -261,7 +260,7 @@ func (s *Service) ShowTasks() error {
 	
 	fmt.Println()
 	fmt.Printf("\033[90m" + strings.Repeat("─", 50) + "\033[0m\n")
-	fmt.Printf("\033[1mTotal: %d task%s", len(allTasks), pluralize(len(allTasks)))
+	fmt.Printf("\033[1mTotal: %d task%s", len(filteredTasks), pluralize(len(filteredTasks)))
 	
 	if overdueTasks > 0 {
 		fmt.Printf(" \033[1;31m(%d overdue)\033[0m", overdueTasks)
@@ -613,4 +612,124 @@ func (s *Service) searchInFile(filePath, query string, searchTags []string) []Se
 	}
 	
 	return results
+}
+
+func (s *Service) filterTasks(tasks []TaskInfo, filters TaskFilters) []TaskInfo {
+	if len(filters.Tags) == 0 && filters.Priority == "" && !filters.Overdue && !filters.Today && filters.FilePattern == "" {
+		return tasks
+	}
+	
+	filtered := []TaskInfo{}
+	now := time.Now()
+	
+	for _, task := range tasks {
+		if !s.matchesFilters(task, filters, now) {
+			continue
+		}
+		filtered = append(filtered, task)
+	}
+	
+	return filtered
+}
+
+func (s *Service) matchesFilters(task TaskInfo, filters TaskFilters, now time.Time) bool {
+	if len(filters.Tags) > 0 {
+		hasMatchingTag := false
+		for _, filterTag := range filters.Tags {
+			for _, taskTag := range task.Tags {
+				if strings.EqualFold(taskTag, filterTag) {
+					hasMatchingTag = true
+					break
+				}
+			}
+			if hasMatchingTag {
+				break
+			}
+		}
+		if !hasMatchingTag {
+			return false
+		}
+	}
+	
+	if filters.Priority != "" {
+		taskPriority := s.detectPriority(task.Text)
+		priorityLevel := s.getPriorityLevel(taskPriority)
+		if !s.matchesPriorityFilter(priorityLevel, filters.Priority) {
+			return false
+		}
+	}
+	
+	if filters.Overdue && (task.DueDate == nil || task.DueDate.Format("2006-01-02") >= now.Format("2006-01-02")) {
+		return false
+	}
+	
+	if filters.Today && (task.DueDate == nil || task.DueDate.Format("2006-01-02") != now.Format("2006-01-02")) {
+		return false
+	}
+	
+	if filters.FilePattern != "" && !strings.Contains(strings.ToLower(task.FilePath), strings.ToLower(filters.FilePattern)) {
+		return false
+	}
+	
+	return true
+}
+
+func (s *Service) getPriorityLevel(priorityEmoji string) string {
+	switch priorityEmoji {
+	case "🔴":
+		return "high"
+	case "🟡":
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+func (s *Service) matchesPriorityFilter(taskPriority, filterPriority string) bool {
+	return strings.EqualFold(taskPriority, filterPriority)
+}
+
+func (s *Service) sortTasks(tasks []TaskInfo, sortBy string) {
+	switch strings.ToLower(sortBy) {
+	case "priority":
+		sort.Slice(tasks, func(i, j int) bool {
+			iPriority := s.detectPriority(tasks[i].Text)
+			jPriority := s.detectPriority(tasks[j].Text)
+			iPriorityLevel := s.getPriorityLevel(iPriority)
+			jPriorityLevel := s.getPriorityLevel(jPriority)
+			
+			priorityOrder := map[string]int{"high": 0, "medium": 1, "low": 2}
+			if priorityOrder[iPriorityLevel] != priorityOrder[jPriorityLevel] {
+				return priorityOrder[iPriorityLevel] < priorityOrder[jPriorityLevel]
+			}
+			
+			if tasks[i].DueDate != nil && tasks[j].DueDate != nil {
+				return tasks[i].DueDate.Before(*tasks[j].DueDate)
+			}
+			if tasks[i].DueDate != nil {
+				return true
+			}
+			if tasks[j].DueDate != nil {
+				return false
+			}
+			return tasks[i].FilePath < tasks[j].FilePath
+		})
+	case "file":
+		sort.Slice(tasks, func(i, j int) bool {
+			return tasks[i].FilePath < tasks[j].FilePath
+		})
+	default:
+		sort.Slice(tasks, func(i, j int) bool {
+			if tasks[i].DueDate != nil && tasks[j].DueDate != nil {
+				return tasks[i].DueDate.Before(*tasks[j].DueDate)
+			}
+			if tasks[i].DueDate != nil {
+				return true
+			}
+			if tasks[j].DueDate != nil {
+				return false
+			}
+			return tasks[i].FilePath < tasks[j].FilePath
+		})
+	}
 }

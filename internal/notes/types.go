@@ -33,4 +33,6 @@ type TaskFilters struct {
 	SortBy      string
 	Focus       bool
 	All         bool
+	Summary     bool
+	Full        bool
 }

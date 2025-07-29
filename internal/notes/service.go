@@ -164,7 +164,7 @@ func (s *Service) List() error {
 
 func (s *Service) ShowTasks(filters TaskFilters) error {
 	// Apply smart defaults if no explicit flags
-	if !filters.All && !filters.Focus && !filters.Overdue && !filters.Today && len(filters.Tags) == 0 && filters.Priority == "" && filters.FilePattern == "" {
+	if !filters.All && !filters.Focus && !filters.Overdue && !filters.Today && len(filters.Tags) == 0 && filters.Priority == "" && filters.FilePattern == "" && !filters.Summary && !filters.Full {
 		// Check current context
 		context := s.detectCurrentContext()
 		if context != "" {
@@ -175,6 +175,8 @@ func (s *Service) ShowTasks(filters TaskFilters) error {
 			filters.Focus = true
 			fmt.Printf("\033[1;36m📋 Focus: Overdue & Today's Tasks\033[0m\n")
 		}
+	} else if filters.Summary {
+		fmt.Printf("\033[1;36m📊 Task Overview\033[0m\n")
 	} else if filters.Focus {
 		fmt.Printf("\033[1;36m📋 Focus: Overdue & Today's Tasks\033[0m\n")
 	} else {
@@ -227,7 +229,17 @@ func (s *Service) ShowTasks(filters TaskFilters) error {
 		return nil
 	}
 	
+	// Handle summary mode
+	if filters.Summary {
+		return s.showTaskSummary(filteredTasks)
+	}
+	
 	s.sortTasks(filteredTasks, filters.SortBy)
+	
+	// Show information scent (category overview) for full view
+	if !filters.Summary {
+		s.showInformationScent(filteredTasks)
+	}
 	
 	currentFile := ""
 	overdueTasks := 0
@@ -283,8 +295,11 @@ func (s *Service) ShowTasks(filters TaskFilters) error {
 			treeChar = "└─"
 		}
 		
-		fmt.Printf("  %s%s %s%s\033[0m %s%s \033[90m(L%d)\033[0m\n", 
-			indentStr, treeChar, priorityColor, priority, taskDisplay, dueDateStr, task.Line)
+		// Add effort estimate for better metadata
+		estimate := estimateTaskEffort(task.Text)
+		
+		fmt.Printf("  %s%s %s%s\033[0m %s%s \033[90m~%s (L%d)\033[0m\n", 
+			indentStr, treeChar, priorityColor, priority, taskDisplay, dueDateStr, estimate, task.Line)
 	}
 	
 	fmt.Println()
@@ -776,4 +791,80 @@ func (s *Service) sortTasks(tasks []TaskInfo, sortBy string) {
 			return tasks[i].FilePath < tasks[j].FilePath
 		})
 	}
+}
+
+func (s *Service) showTaskSummary(tasks []TaskInfo) error {
+	stats := analyzeTaskStats(tasks, s)
+	
+	// Show category counts with visual indicators
+	fmt.Printf("🔥 \033[1;31mURGENT (%d)\033[0m     📅 \033[1;33mTODAY (%d)\033[0m     ⏰ \033[1;31mOVERDUE (%d)\033[0m     📋 \033[90mOTHER (%d)\033[0m\n",
+		len(stats.Urgent), len(stats.Today), len(stats.Overdue), len(stats.Other))
+	fmt.Printf("\033[90m" + strings.Repeat("─", 65) + "\033[0m\n\n")
+	
+	// Show status awareness
+	if len(stats.QuickWins) > 0 {
+		fmt.Printf("💡 Quick wins available (%d tasks <30min)\n", len(stats.QuickWins))
+	}
+	if len(stats.EnergyNeeded) > 0 {
+		fmt.Printf("⚡ Energy needed (%d complex tasks requiring focus)\n", len(stats.EnergyNeeded))
+	}
+	if len(stats.Blocked) > 0 {
+		fmt.Printf("🤝 Waiting on others (%d blocked tasks)\n", len(stats.Blocked))
+	}
+	if len(stats.QuickWins) > 0 || len(stats.EnergyNeeded) > 0 || len(stats.Blocked) > 0 {
+		fmt.Println()
+	}
+	
+	// Show top 5 most critical tasks
+	criticalTasks := []TaskInfo{}
+	criticalTasks = append(criticalTasks, stats.Urgent...)
+	criticalTasks = append(criticalTasks, stats.Overdue...)
+	criticalTasks = append(criticalTasks, stats.Today...)
+	
+	if len(criticalTasks) > 5 {
+		criticalTasks = criticalTasks[:5]
+	}
+	
+	if len(criticalTasks) > 0 {
+		fmt.Printf("\033[1mTop Critical Tasks:\033[0m\n")
+		for i, task := range criticalTasks {
+			priority := s.detectPriority(task.Text)
+			priorityColor := s.getPriorityColor(priority)
+			
+			relPath, _ := filepath.Rel(s.config.BaseDir, task.FilePath)
+			estimate := estimateTaskEffort(task.Text)
+			
+			taskDisplay := task.Text
+			if len(taskDisplay) > 50 {
+				taskDisplay = taskDisplay[:47] + "..."
+			}
+			
+			dueDateStr := ""
+			if task.DueDate != nil {
+				relativeTime := formatRelativeTime(task.DueDate)
+				dueDateStr = fmt.Sprintf(" \033[90m(%s)\033[0m", relativeTime)
+			}
+			
+			fmt.Printf("[%d] %s%s\033[0m %s%s \033[90m~%s • %s:L%d\033[0m\n",
+				i+1, priorityColor, priority, taskDisplay, dueDateStr, estimate, relPath, task.Line)
+		}
+	}
+	
+	fmt.Printf("\n\033[90m" + strings.Repeat("─", 50) + "\033[0m\n")
+	fmt.Printf("\033[1mTotal: %d task%s\033[0m\n", len(tasks), pluralize(len(tasks)))
+	fmt.Printf("\033[90mUse --full to see detailed view\033[0m\n")
+	
+	return nil
+}
+
+func (s *Service) showInformationScent(tasks []TaskInfo) {
+	stats := analyzeTaskStats(tasks, s)
+	
+	if len(stats.Urgent) == 0 && len(stats.Today) == 0 && len(stats.Overdue) == 0 {
+		return
+	}
+	
+	fmt.Printf("🔥 \033[1;31mURGENT (%d)\033[0m     📅 \033[1;33mTODAY (%d)\033[0m     ⏰ \033[1;31mOVERDUE (%d)\033[0m     📋 \033[90mOTHER (%d)\033[0m\n",
+		len(stats.Urgent), len(stats.Today), len(stats.Overdue), len(stats.Other))
+	fmt.Printf("\033[90m" + strings.Repeat("─", 65) + "\033[0m\n\n")
 }

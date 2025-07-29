@@ -155,3 +155,103 @@ func getTreeChars(isLast bool) string {
 	}
 	return "├─ "
 }
+
+// TaskStats holds summary statistics about tasks
+type TaskStats struct {
+	Total      int
+	Urgent     []TaskInfo
+	Today      []TaskInfo
+	Overdue    []TaskInfo
+	Other      []TaskInfo
+	QuickWins  []TaskInfo
+	EnergyNeeded []TaskInfo
+	Blocked    []TaskInfo
+}
+
+// analyzeTaskStats categorizes tasks for summary display
+func analyzeTaskStats(tasks []TaskInfo, service *Service) TaskStats {
+	stats := TaskStats{
+		Total:     len(tasks),
+		Urgent:    []TaskInfo{},
+		Today:     []TaskInfo{},
+		Overdue:   []TaskInfo{},
+		Other:     []TaskInfo{},
+		QuickWins: []TaskInfo{},
+		EnergyNeeded: []TaskInfo{},
+		Blocked:   []TaskInfo{},
+	}
+	
+	now := time.Now()
+	todayStr := now.Format("2006-01-02")
+	
+	for _, task := range tasks {
+		priority := service.detectPriority(task.Text)
+		taskLower := strings.ToLower(task.Text)
+		
+		// Categorize by urgency
+		if priority == "🔴" {
+			stats.Urgent = append(stats.Urgent, task)
+		} else if task.DueDate != nil {
+			taskDateStr := task.DueDate.Format("2006-01-02")
+			if taskDateStr < todayStr {
+				stats.Overdue = append(stats.Overdue, task)
+			} else if taskDateStr == todayStr {
+				stats.Today = append(stats.Today, task)
+			} else {
+				stats.Other = append(stats.Other, task)
+			}
+		} else {
+			stats.Other = append(stats.Other, task)
+		}
+		
+		// Categorize by effort/status
+		if strings.Contains(taskLower, "quick") || strings.Contains(taskLower, "simple") || 
+		   strings.Contains(taskLower, "easy") || strings.Contains(taskLower, "fix typo") ||
+		   strings.Contains(taskLower, "update") && len(task.Text) < 30 {
+			stats.QuickWins = append(stats.QuickWins, task)
+		} else if strings.Contains(taskLower, "design") || strings.Contains(taskLower, "architecture") ||
+		         strings.Contains(taskLower, "refactor") || strings.Contains(taskLower, "implement") {
+			stats.EnergyNeeded = append(stats.EnergyNeeded, task)
+		}
+		
+		if strings.Contains(taskLower, "blocked") || strings.Contains(taskLower, "waiting") ||
+		   strings.Contains(taskLower, "pending") {
+			stats.Blocked = append(stats.Blocked, task)
+		}
+	}
+	
+	return stats
+}
+
+// estimateTaskEffort returns a rough effort estimate based on task content
+func estimateTaskEffort(taskText string) string {
+	taskLower := strings.ToLower(taskText)
+	
+	quickKeywords := []string{"fix typo", "update", "change", "quick", "simple", "easy"}
+	mediumKeywords := []string{"add", "create", "write", "test", "review"}
+	largeKeywords := []string{"implement", "design", "refactor", "architecture", "migrate"}
+	
+	for _, keyword := range quickKeywords {
+		if strings.Contains(taskLower, keyword) && len(taskText) < 40 {
+			return "15m"
+		}
+	}
+	
+	for _, keyword := range largeKeywords {
+		if strings.Contains(taskLower, keyword) {
+			return "2-4h"
+		}
+	}
+	
+	for _, keyword := range mediumKeywords {
+		if strings.Contains(taskLower, keyword) {
+			return "1h"
+		}
+	}
+	
+	if len(taskText) > 60 {
+		return "1-2h"
+	}
+	
+	return "30m"
+}

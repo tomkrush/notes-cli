@@ -264,9 +264,15 @@ func estimateTaskEffort(taskText string) string {
 // parseTimeEntry parses a time log entry line
 // Format: "• 2024-01-15 09:30-10:45 (1h15m) - Initial component setup"
 func parseTimeEntry(line string) (*TimeEntry, error) {
-	// Remove leading bullet and whitespace
-	line = strings.TrimSpace(strings.TrimPrefix(line, "•"))
+	// Remove leading bullet and whitespace - handle various bullet types
 	line = strings.TrimSpace(line)
+	if strings.HasPrefix(line, "•") {
+		line = strings.TrimSpace(line[len("•"):])
+	} else if strings.HasPrefix(line, "*") {
+		line = strings.TrimSpace(line[1:])
+	} else if strings.HasPrefix(line, "-") {
+		line = strings.TrimSpace(line[1:])
+	}
 	
 	// Parse the pattern: "YYYY-MM-DD HH:MM-HH:MM (duration) - description"
 	parts := strings.SplitN(line, " - ", 2)
@@ -296,13 +302,13 @@ func parseTimeEntry(line string) (*TimeEntry, error) {
 	// Parse date and time range
 	parts = strings.Split(timePart, " ")
 	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid date-time format")
+		return nil, fmt.Errorf("invalid date-time format: expected 2 parts, got %d: %v", len(parts), parts)
 	}
 	
 	dateStr := parts[0]
 	timeRange := parts[1]
 	
-	date, err := time.Parse("2006-01-02", dateStr)
+	date, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
 	if err != nil {
 		return nil, fmt.Errorf("invalid date: %w", err)
 	}

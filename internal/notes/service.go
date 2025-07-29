@@ -1164,6 +1164,7 @@ func (s *Service) showTimeReport(period string) error {
 		return err
 	}
 	
+	
 	s.formatTimeReport(report)
 	return nil
 }

@@ -174,6 +174,7 @@ TIME TRACKING (CLI Commands)
   notes time resume          Resume paused timer  
   notes time stop            Stop timer, auto-log to markdown
   notes time status          Show current timer status
+  notes time report [period] Show time report (today, week, month)
 
 EXAMPLES
   # Create and manage notes
@@ -190,6 +191,9 @@ EXAMPLES
   notes time start "Fix login bug"   # Start timer
   notes time status                  # Check progress
   notes time stop                    # Stop and log
+  notes time report today            # See what you worked on today
+  notes time report week             # Weekly time summary
+  notes time report month            # Monthly time summary
   
   # Search and save
   notes search "API" #backend
@@ -242,7 +246,7 @@ CLI COMMANDS
   resume [task]    Resume paused timer or start new one
   stop             Stop timer and automatically log time to markdown
   status           Show current timer status
-  report [period]  Time reports (coming soon)
+  report [period]  Show time report (today, week, month)
 
 HOW IT WORKS
   1. You have tasks in markdown: - [ ] Fix authentication bug est:2h
@@ -286,6 +290,56 @@ WORKFLOW EXAMPLES
   $ notes time stop
   ⏹️ Stopped timer for: Fix login validation  
   Time logged: 1h45m
+
+TIME REPORTS
+  Generate detailed reports of your time tracking activity:
+  
+  notes time report              # Today's activity (default)
+  notes time report today        # Today's time breakdown
+  notes time report week         # This week's summary
+  notes time report month        # This month's summary
+  
+  Reports include:
+  • Total time worked and task count
+  • Task breakdown with percentages  
+  • Individual work sessions with times
+  • Daily breakdown (for week/month)
+  • Average time per day
+  • File locations for each task
+
+REPORT EXAMPLES
+  $ notes time report today
+  ⏰ Time Report - Today
+  Jul 29 to Jul 29, 2025
+  ─────────────────────────────────────
+  
+  Total Time: 4h30m across 3 tasks
+  
+  Task Breakdown:
+  [1] Fix authentication bug (2h15m, 50.0%)
+      📄 projects/auth.md:L45
+      Sessions:
+      • Jul 29 09:00-10:15 (1h15m) - Initial debugging
+      • Jul 29 14:00-15:00 (1h) - Testing fixes
+  
+  [2] Update documentation (1h30m, 33.3%)  
+      📄 projects/docs.md:L12
+      • Jul 29 11:00-12:30 - Writing guide
+  
+  $ notes time report week
+  ⏰ Time Report - This Week  
+  Jul 28 to Aug 3, 2025
+  ─────────────────────────────────────
+  
+  Total Time: 12h45m across 8 tasks
+  
+  Daily Breakdown:
+    Mon Jul 28: 3h15m
+    Tue Jul 29: 4h30m
+    Wed Jul 30: 2h45m
+    Thu Jul 31: 2h15m
+  
+  Average per day: 3h11m
 
 INTEGRATION WITH TASK VIEWS
   Time tracking integrates with all task views:

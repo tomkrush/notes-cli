@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -502,6 +503,231 @@ func (s *Service) findTaskByText(searchText string) (*TaskInfo, error) {
 	
 	// Return first match if no exact match
 	return &matches[0], nil
+}
+
+// TimeReportData holds aggregated time data for reporting
+type TimeReportData struct {
+	Tasks []TaskTimeData
+	TotalTime time.Duration
+	Period string
+	StartDate time.Time
+	EndDate time.Time
+}
+
+type TaskTimeData struct {
+	TaskInfo TaskInfo
+	Entries []TimeEntry
+	TotalTime time.Duration
+}
+
+// collectTimeData gathers all time entries for the specified period
+func (s *Service) collectTimeData(period string) (*TimeReportData, error) {
+	now := time.Now()
+	var startDate, endDate time.Time
+	
+	switch strings.ToLower(period) {
+	case "today":
+		startDate = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		endDate = startDate.Add(24 * time.Hour)
+	case "week":
+		// Start of current week (Monday)
+		weekday := int(now.Weekday())
+		if weekday == 0 { // Sunday
+			weekday = 7
+		}
+		startDate = now.Add(-time.Duration(weekday-1) * 24 * time.Hour)
+		startDate = time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, now.Location())
+		endDate = startDate.Add(7 * 24 * time.Hour)
+	case "month":
+		startDate = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		endDate = startDate.AddDate(0, 1, 0)
+	default:
+		return nil, fmt.Errorf("invalid period: %s. Use 'today', 'week', or 'month'", period)
+	}
+	
+	report := &TimeReportData{
+		Tasks: []TaskTimeData{},
+		Period: period,
+		StartDate: startDate,
+		EndDate: endDate,
+	}
+	
+	// Collect all tasks with time entries
+	searchDirs := []string{"daily", "projects", "meetings", "design", "learning", "todos"}
+	
+	for _, dir := range searchDirs {
+		dirPath := filepath.Join(s.config.BaseDir, dir)
+		
+		err := filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			
+			if d.IsDir() || (!strings.HasSuffix(path, ".md") && !strings.HasSuffix(path, ".txt")) {
+				return nil
+			}
+			
+			tasks := s.extractTasks(path)
+			for _, task := range tasks {
+				if len(task.TimeEntries) == 0 {
+					continue
+				}
+				
+				// Filter time entries for the period
+				var filteredEntries []TimeEntry
+				var taskTotal time.Duration
+				
+				for _, entry := range task.TimeEntries {
+					if (entry.Date.After(startDate) || entry.Date.Equal(startDate)) && entry.Date.Before(endDate) {
+						filteredEntries = append(filteredEntries, entry)
+						taskTotal += entry.Duration
+					}
+				}
+				
+				if len(filteredEntries) > 0 {
+					report.Tasks = append(report.Tasks, TaskTimeData{
+						TaskInfo: task,
+						Entries: filteredEntries,
+						TotalTime: taskTotal,
+					})
+					report.TotalTime += taskTotal
+				}
+			}
+			
+			return nil
+		})
+		
+		if err != nil {
+			continue
+		}
+	}
+	
+	// Sort tasks by total time (descending)
+	sort.Slice(report.Tasks, func(i, j int) bool {
+		return report.Tasks[i].TotalTime > report.Tasks[j].TotalTime
+	})
+	
+	return report, nil
+}
+
+// formatTimeReport formats the time report for display
+func (s *Service) formatTimeReport(report *TimeReportData) {
+	// Header
+	periodTitle := strings.Title(report.Period)
+	if report.Period == "today" {
+		periodTitle = "Today"
+	} else if report.Period == "week" {
+		periodTitle = "This Week"
+	} else if report.Period == "month" {
+		periodTitle = "This Month"
+	}
+	
+	fmt.Printf("\033[1;36m⏰ Time Report - %s\033[0m\n", periodTitle)
+	fmt.Printf("\033[90m%s to %s\033[0m\n", 
+		report.StartDate.Format("Jan 2"), 
+		report.EndDate.Add(-24*time.Hour).Format("Jan 2, 2006"))
+	fmt.Printf("\033[90m" + strings.Repeat("─", 60) + "\033[0m\n\n")
+	
+	if len(report.Tasks) == 0 {
+		fmt.Printf("\033[90mNo time tracked for this period.\033[0m\n")
+		return
+	}
+	
+	// Summary
+	fmt.Printf("\033[1mTotal Time: %s\033[0m across %d task%s\n\n", 
+		formatDuration(report.TotalTime), 
+		len(report.Tasks), 
+		pluralize(len(report.Tasks)))
+	
+	// Task breakdown
+	fmt.Printf("\033[1mTask Breakdown:\033[0m\n")
+	for i, taskData := range report.Tasks {
+		relPath, _ := filepath.Rel(s.config.BaseDir, taskData.TaskInfo.FilePath)
+		
+		// Task header
+		taskDisplay := taskData.TaskInfo.Text
+		if len(taskDisplay) > 50 {
+			taskDisplay = taskDisplay[:47] + "..."
+		}
+		
+		percentage := float64(taskData.TotalTime) / float64(report.TotalTime) * 100
+		
+		fmt.Printf("\n[%d] \033[1m%s\033[0m \033[90m(%s, %.1f%%)\033[0m\n", 
+			i+1, taskDisplay, formatDuration(taskData.TotalTime), percentage)
+		fmt.Printf("    \033[90m📄 %s:L%d\033[0m\n", relPath, taskData.TaskInfo.Line)
+		
+		// Show individual time entries if there are multiple sessions
+		if len(taskData.Entries) > 1 {
+			fmt.Printf("    \033[90mSessions:\033[0m\n")
+			for _, entry := range taskData.Entries {
+				fmt.Printf("    • %s %s-%s (%s) - %s\n",
+					entry.Date.Format("Jan 2"),
+					entry.StartTime.Format("15:04"),
+					entry.EndTime.Format("15:04"),
+					formatDuration(entry.Duration),
+					entry.Description)
+			}
+		} else if len(taskData.Entries) == 1 {
+			entry := taskData.Entries[0]
+			fmt.Printf("    • %s %s-%s - %s\n",
+				entry.Date.Format("Jan 2"),
+				entry.StartTime.Format("15:04"),
+				entry.EndTime.Format("15:04"),
+				entry.Description)
+		}
+	}
+	
+	// Daily breakdown for week/month reports
+	if report.Period == "week" || report.Period == "month" {
+		fmt.Printf("\n\033[1mDaily Breakdown:\033[0m\n")
+		s.showDailyBreakdown(report)
+	}
+	
+	fmt.Printf("\n\033[90m" + strings.Repeat("─", 60) + "\033[0m\n")
+	fmt.Printf("\033[90mAverage per day: %s\033[0m\n", s.calculateDailyAverage(report))
+}
+
+// showDailyBreakdown shows time per day for week/month reports
+func (s *Service) showDailyBreakdown(report *TimeReportData) {
+	dailyTotals := make(map[string]time.Duration)
+	
+	// Aggregate time by day
+	for _, taskData := range report.Tasks {
+		for _, entry := range taskData.Entries {
+			dayKey := entry.Date.Format("2006-01-02")
+			dailyTotals[dayKey] += entry.Duration
+		}
+	}
+	
+	// Create sorted list of days
+	var days []string
+	current := report.StartDate
+	for current.Before(report.EndDate) {
+		dayKey := current.Format("2006-01-02")
+		days = append(days, dayKey)
+		current = current.Add(24 * time.Hour)
+	}
+	
+	// Display daily totals
+	for _, day := range days {
+		if total, exists := dailyTotals[day]; exists && total > 0 {
+			date, _ := time.Parse("2006-01-02", day)
+			fmt.Printf("  %s: %s\n", 
+				date.Format("Mon Jan 2"), 
+				formatDuration(total))
+		}
+	}
+}
+
+// calculateDailyAverage calculates average time per day for the period
+func (s *Service) calculateDailyAverage(report *TimeReportData) string {
+	days := int(report.EndDate.Sub(report.StartDate).Hours() / 24)
+	if days == 0 {
+		days = 1
+	}
+	
+	avgDuration := time.Duration(int64(report.TotalTime) / int64(days))
+	return formatDuration(avgDuration)
 }
 
 // addTimeEntry adds a time entry to a task in its markdown file

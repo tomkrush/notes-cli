@@ -1159,7 +1159,11 @@ func (s *Service) showTimerStatus() error {
 }
 
 func (s *Service) showTimeReport(period string) error {
-	fmt.Printf("⏰ Time tracking report for: %s\n", period)
-	fmt.Printf("(Time report feature coming soon)\n")
+	report, err := s.collectTimeData(period)
+	if err != nil {
+		return err
+	}
+	
+	s.formatTimeReport(report)
 	return nil
 }

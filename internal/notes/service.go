@@ -19,12 +19,25 @@ import (
 var directories = []string{"daily", "projects", "meetings", "design", "learning", "todos", "archive"}
 
 type TaskInfo struct {
-	Text     string
-	Line     int
-	Indent   int
-	DueDate  *time.Time
-	Tags     []string
-	FilePath string
+	Text        string
+	Line        int
+	Indent      int
+	DueDate     *time.Time
+	Tags        []string
+	FilePath    string
+	Estimate    string
+	TimeEntries []TimeEntry
+	TotalTime   time.Duration
+	Remaining   string
+	IsActive    bool
+}
+
+type TimeEntry struct {
+	Date        time.Time
+	StartTime   time.Time
+	EndTime     time.Time
+	Duration    time.Duration
+	Description string
 }
 
 type SearchResult struct {
@@ -295,11 +308,35 @@ func (s *Service) ShowTasks(filters TaskFilters) error {
 			treeChar = "└─"
 		}
 		
-		// Add effort estimate for better metadata
-		estimate := estimateTaskEffort(task.Text)
+		// Add effort estimate and time tracking info
+		estimate := task.Estimate
+		if estimate == "" {
+			estimate = estimateTaskEffort(task.Text)
+		}
 		
-		fmt.Printf("  %s%s %s%s\033[0m %s%s \033[90m~%s (L%d)\033[0m\n", 
-			indentStr, treeChar, priorityColor, priority, taskDisplay, dueDateStr, estimate, task.Line)
+		// Show time tracking information
+		timeInfo := ""
+		if task.TotalTime > 0 {
+			totalStr := formatDuration(task.TotalTime)
+			if task.Remaining != "" {
+				timeInfo = fmt.Sprintf(" \033[33m[%s worked, %s left]\033[0m", totalStr, task.Remaining)
+			} else if task.Estimate != "" {
+				if estimateDur, err := parseDuration(task.Estimate); err == nil {
+					if task.TotalTime >= estimateDur {
+						timeInfo = fmt.Sprintf(" \033[32m[%s completed]\033[0m", totalStr)
+					} else {
+						timeInfo = fmt.Sprintf(" \033[33m[%s/%s]\033[0m", totalStr, formatDuration(estimateDur))
+					}
+				} else {
+					timeInfo = fmt.Sprintf(" \033[33m[%s worked]\033[0m", totalStr)
+				}
+			} else {
+				timeInfo = fmt.Sprintf(" \033[33m[%s worked]\033[0m", totalStr)
+			}
+		}
+		
+		fmt.Printf("  %s%s %s%s\033[0m %s%s%s \033[90m~%s (L%d)\033[0m\n", 
+			indentStr, treeChar, priorityColor, priority, taskDisplay, dueDateStr, timeInfo, estimate, task.Line)
 	}
 	
 	fmt.Println()
@@ -491,42 +528,111 @@ func (s *Service) extractTasks(filePath string) []TaskInfo {
 	
 	taskPattern := regexp.MustCompile(`^(\s*)-\s*\[\s*\]\s*(.*)$`)
 	dueDatePattern := regexp.MustCompile(`due:(\d{4}-\d{2}-\d{2})`)
+	estimatePattern := regexp.MustCompile(`est:([^\\s]+)`)
 	tagPattern := regexp.MustCompile(`#(\w+)`)
+	timeLogPattern := regexp.MustCompile(`^\s*Time log:\s*$`)
+	timeEntryPattern := regexp.MustCompile(`^\s*•`)
+	remainingPattern := regexp.MustCompile(`^\s*Remaining:\s*(.+)$`)
+	totalPattern := regexp.MustCompile(`^\s*Total:\s*(.+)$`)
 	
 	scanner := bufio.NewScanner(file)
 	lineNum := 0
 	tasks := []TaskInfo{}
+	var currentTask *TaskInfo
+	inTimeLog := false
 	
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
 		
+		// Check for task line
 		if match := taskPattern.FindStringSubmatch(line); match != nil {
+			// Save previous task if exists
+			if currentTask != nil {
+				tasks = append(tasks, *currentTask)
+			}
+			
 			taskText := strings.TrimSpace(match[2])
 			indent := len(match[1])
 			
-			task := TaskInfo{
-				Text:     taskText,
-				Line:     lineNum,
-				Indent:   indent,
-				FilePath: filePath,
+			currentTask = &TaskInfo{
+				Text:        taskText,
+				Line:        lineNum,
+				Indent:      indent,
+				FilePath:    filePath,
+				TimeEntries: []TimeEntry{},
 			}
+			inTimeLog = false
 			
+			// Parse due date
 			if dueDateMatch := dueDatePattern.FindStringSubmatch(taskText); dueDateMatch != nil {
 				if dueDate, err := time.Parse("2006-01-02", dueDateMatch[1]); err == nil {
-					task.DueDate = &dueDate
+					currentTask.DueDate = &dueDate
 				}
-				task.Text = dueDatePattern.ReplaceAllString(task.Text, "")
-				task.Text = strings.TrimSpace(task.Text)
+				currentTask.Text = dueDatePattern.ReplaceAllString(currentTask.Text, "")
 			}
 			
+			// Parse estimate
+			if estimateMatch := estimatePattern.FindStringSubmatch(taskText); estimateMatch != nil {
+				currentTask.Estimate = estimateMatch[1]
+				currentTask.Text = estimatePattern.ReplaceAllString(currentTask.Text, "")
+			}
+			
+			// Parse tags
 			tagMatches := tagPattern.FindAllStringSubmatch(taskText, -1)
 			for _, tagMatch := range tagMatches {
-				task.Tags = append(task.Tags, "#"+tagMatch[1])
+				currentTask.Tags = append(currentTask.Tags, "#"+tagMatch[1])
 			}
 			
-			tasks = append(tasks, task)
+			currentTask.Text = strings.TrimSpace(currentTask.Text)
+			continue
 		}
+		
+		// Skip if no current task
+		if currentTask == nil {
+			continue
+		}
+		
+		// Check for "Time log:" line
+		if timeLogPattern.MatchString(line) {
+			inTimeLog = true
+			continue
+		}
+		
+		// Parse time entries
+		if inTimeLog && timeEntryPattern.MatchString(line) {
+			if entry, err := parseTimeEntry(line); err == nil {
+				currentTask.TimeEntries = append(currentTask.TimeEntries, *entry)
+				currentTask.TotalTime += entry.Duration
+			}
+			continue
+		}
+		
+		// Parse remaining time
+		if remainingMatch := remainingPattern.FindStringSubmatch(line); remainingMatch != nil {
+			currentTask.Remaining = strings.TrimSpace(remainingMatch[1])
+			inTimeLog = false
+			continue
+		}
+		
+		// Parse total time
+		if totalMatch := totalPattern.FindStringSubmatch(line); totalMatch != nil {
+			if duration, err := parseDuration(strings.TrimSpace(totalMatch[1])); err == nil {
+				currentTask.TotalTime = duration
+			}
+			inTimeLog = false
+			continue
+		}
+		
+		// If we hit a non-indented line that's not part of time log, we're done with this task
+		if !strings.HasPrefix(line, "  ") && strings.TrimSpace(line) != "" {
+			inTimeLog = false
+		}
+	}
+	
+	// Don't forget the last task
+	if currentTask != nil {
+		tasks = append(tasks, *currentTask)
 	}
 	
 	return tasks
@@ -867,4 +973,193 @@ func (s *Service) showInformationScent(tasks []TaskInfo) {
 	fmt.Printf("🔥 \033[1;31mURGENT (%d)\033[0m     📅 \033[1;33mTODAY (%d)\033[0m     ⏰ \033[1;31mOVERDUE (%d)\033[0m     📋 \033[90mOTHER (%d)\033[0m\n",
 		len(stats.Urgent), len(stats.Today), len(stats.Overdue), len(stats.Other))
 	fmt.Printf("\033[90m" + strings.Repeat("─", 65) + "\033[0m\n\n")
+}
+
+// HandleTimeCommand processes time tracking commands
+func (s *Service) HandleTimeCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("time command requires a subcommand")
+	}
+	
+	command := args[0]
+	commandArgs := args[1:]
+	
+	switch command {
+	case "start":
+		if len(commandArgs) == 0 {
+			return fmt.Errorf("start command requires a task description")
+		}
+		taskText := strings.Join(commandArgs, " ")
+		return s.startTimer(taskText)
+	case "pause":
+		return s.pauseTimer()
+	case "resume":
+		var taskText string
+		if len(commandArgs) > 0 {
+			taskText = strings.Join(commandArgs, " ")
+		}
+		return s.resumeTimer(taskText)
+	case "stop":
+		return s.stopTimer()
+	case "status":
+		return s.showTimerStatus()
+	case "report":
+		period := "today"
+		if len(commandArgs) > 0 {
+			period = commandArgs[0]
+		}
+		return s.showTimeReport(period)
+	default:
+		return fmt.Errorf("unknown time command: %s", command)
+	}
+}
+
+
+func (s *Service) startTimer(taskText string) error {
+	// First, stop any existing timer
+	if err := s.stopTimer(); err != nil {
+		// Continue even if stop fails (no active timer)
+	}
+	
+	// Find the task in markdown files
+	task, err := s.findTaskByText(taskText)
+	if err != nil {
+		return fmt.Errorf("could not find task: %w", err)
+	}
+	
+	// Save timer state
+	state := TimerState{
+		IsActive:   true,
+		TaskText:   task.Text,
+		FilePath:   task.FilePath,
+		TaskLine:   task.Line,
+		StartTime:  time.Now(),
+		IsPaused:   false,
+	}
+	
+	if err := s.saveTimerState(state); err != nil {
+		return fmt.Errorf("failed to save timer state: %w", err)
+	}
+	
+	relPath, _ := filepath.Rel(s.config.BaseDir, task.FilePath)
+	fmt.Printf("⏰ Started timer for: \033[1m%s\033[0m\n", task.Text)
+	fmt.Printf("\033[90mLocation: %s:L%d\033[0m\n", relPath, task.Line)
+	
+	return nil
+}
+
+func (s *Service) pauseTimer() error {
+	state, err := s.loadTimerState()
+	if err != nil {
+		return fmt.Errorf("no active timer found")
+	}
+	
+	if !state.IsActive {
+		return fmt.Errorf("no active timer found")
+	}
+	
+	if state.IsPaused {
+		return fmt.Errorf("timer is already paused")
+	}
+	
+	state.IsPaused = true
+	state.PausedTime = time.Now()
+	
+	if err := s.saveTimerState(state); err != nil {
+		return fmt.Errorf("failed to save timer state: %w", err)
+	}
+	
+	elapsed := time.Since(state.StartTime) - state.TotalPaused
+	fmt.Printf("⏸️  Paused timer for: \033[1m%s\033[0m\n", state.TaskText)
+	fmt.Printf("\033[90mElapsed time: %s\033[0m\n", formatDuration(elapsed))
+	
+	return nil
+}
+
+func (s *Service) resumeTimer(taskText string) error {
+	state, err := s.loadTimerState()
+	if err != nil || !state.IsActive {
+		// No existing timer, start a new one
+		if taskText == "" {
+			return fmt.Errorf("no paused timer found and no task specified")
+		}
+		return s.startTimer(taskText)
+	}
+	
+	if !state.IsPaused {
+		return fmt.Errorf("timer is not paused")
+	}
+	
+	// Add paused duration to total
+	state.TotalPaused += time.Since(state.PausedTime)
+	state.IsPaused = false
+	state.PausedTime = time.Time{}
+	
+	if err := s.saveTimerState(state); err != nil {
+		return fmt.Errorf("failed to save timer state: %w", err)
+	}
+	
+	fmt.Printf("▶️  Resumed timer for: \033[1m%s\033[0m\n", state.TaskText)
+	
+	return nil
+}
+
+func (s *Service) stopTimer() error {
+	state, err := s.loadTimerState()
+	if err != nil || !state.IsActive {
+		return fmt.Errorf("no active timer found")
+	}
+	
+	// Calculate total elapsed time
+	elapsed := time.Since(state.StartTime) - state.TotalPaused
+	if state.IsPaused {
+		elapsed -= time.Since(state.PausedTime)
+	}
+	
+	// Add time entry to the task
+	if err := s.addTimeEntry(state, elapsed); err != nil {
+		return fmt.Errorf("failed to add time entry: %w", err)
+	}
+	
+	// Clear timer state
+	if err := s.clearTimerState(); err != nil {
+		return fmt.Errorf("failed to clear timer state: %w", err)
+	}
+	
+	fmt.Printf("⏹️  Stopped timer for: \033[1m%s\033[0m\n", state.TaskText)
+	fmt.Printf("\033[32mTime logged: %s\033[0m\n", formatDuration(elapsed))
+	
+	return nil
+}
+
+func (s *Service) showTimerStatus() error {
+	state, err := s.loadTimerState()
+	if err != nil || !state.IsActive {
+		fmt.Printf("\033[90mNo active timer\033[0m\n")
+		return nil
+	}
+	
+	elapsed := time.Since(state.StartTime) - state.TotalPaused
+	if state.IsPaused {
+		elapsed -= time.Since(state.PausedTime)
+	}
+	
+	status := "🕐 RUNNING"
+	if state.IsPaused {
+		status = "⏸️  PAUSED"
+	}
+	
+	relPath, _ := filepath.Rel(s.config.BaseDir, state.FilePath)
+	
+	fmt.Printf("%s: \033[1m%s\033[0m\n", status, state.TaskText)
+	fmt.Printf("\033[90mElapsed: %s • Location: %s:L%d\033[0m\n", 
+		formatDuration(elapsed), relPath, state.TaskLine)
+	
+	return nil
+}
+
+func (s *Service) showTimeReport(period string) error {
+	fmt.Printf("⏰ Time tracking report for: %s\n", period)
+	fmt.Printf("(Time report feature coming soon)\n")
+	return nil
 }

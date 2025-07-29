@@ -64,6 +64,16 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error saving changes: %v\n", err)
 			os.Exit(1)
 		}
+	case "time":
+		if len(args) < 1 {
+			fmt.Fprintf(os.Stderr, "Error: time command requires a subcommand\n")
+			showTimeHelp()
+			os.Exit(1)
+		}
+		if err := service.HandleTimeCommand(args); err != nil {
+			fmt.Fprintf(os.Stderr, "Error with time command: %v\n", err)
+			os.Exit(1)
+		}
 	case "search":
 		if len(args) < 1 {
 			fmt.Fprintf(os.Stderr, "Error: search command requires a query\n")
@@ -105,6 +115,7 @@ Usage:
   notes create <type> [title]         # Create a new note
   notes list                          # List existing notes
   notes tasks [filters]               # Show incomplete tasks with due dates
+  notes time <command> [args]         # Time tracking for tasks
   notes search <query> [#tag ...]     # Search notes by content and tags
   notes save [message]                # Commit all changes to git
   notes help                          # Show this help
@@ -118,8 +129,10 @@ Available note types:
 
 Task Features:
   - Add due dates: "- [ ] Task due:2024-12-31"
+  - Add estimates: "- [ ] Task est:2h #urgent"
   - Add tags: "- [ ] Task #urgent #work"
   - Priority keywords: urgent, critical, important (!!!), !!, soon
+  - Time tracking with structured logs (see 'notes time help')
 
 Task Filters:
   --summary         Show overview with counts and top 5 critical tasks
@@ -138,15 +151,15 @@ Examples:
   notes create daily
   notes create project "My New Project"
   notes create meeting "Team Standup"
+  notes tasks                                    # Smart defaults
+  notes tasks --summary                          # Overview with top 5
+  notes tasks --focus                            # Overdue + today only
+  notes time start "Fix authentication bug"     # Start timer
+  notes time status                              # Check current timer
+  notes time stop                                # Stop and log time
   notes search "API design" #work
-  notes search "" #urgent
-  notes tasks
-  notes tasks --summary
-  notes tasks --focus
-  notes tasks --full
-  notes tasks --all
   notes tasks --tag urgent --overdue
-  notes tasks --priority high --sort priority`)
+  notes save "Updated project docs"`)
 }
 
 func showCreateHelp() {
@@ -178,6 +191,26 @@ Examples:
   notes search "" #work              # Find all notes with #work tag
   notes search "meeting" #urgent     # Find "meeting" text with #urgent tag
   notes search #project #active      # Find notes with both tags`)
+}
+
+func showTimeHelp() {
+	fmt.Println(`Usage: notes time <command> [args]
+
+Time tracking commands:
+  start <task>     Start timing a task (searches for matching task text)
+  pause            Pause current active timer
+  resume [task]    Resume paused timer or start new one
+  stop             Stop current timer and save time entry
+  status           Show current timer status
+  report [period]  Show time tracking report (today, week, month)
+
+Examples:
+  notes time start "Fix authentication bug"
+  notes time pause
+  notes time resume
+  notes time stop
+  notes time status
+  notes time report today`)
 }
 
 func parseTaskFilters(args []string) notes.TaskFilters {

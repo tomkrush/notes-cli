@@ -1,9 +1,13 @@
 package notes
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -254,4 +258,319 @@ func estimateTaskEffort(taskText string) string {
 	}
 	
 	return "30m"
+}
+
+// parseTimeEntry parses a time log entry line
+// Format: "• 2024-01-15 09:30-10:45 (1h15m) - Initial component setup"
+func parseTimeEntry(line string) (*TimeEntry, error) {
+	// Remove leading bullet and whitespace
+	line = strings.TrimSpace(strings.TrimPrefix(line, "•"))
+	line = strings.TrimSpace(line)
+	
+	// Parse the pattern: "YYYY-MM-DD HH:MM-HH:MM (duration) - description"
+	parts := strings.SplitN(line, " - ", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid time entry format")
+	}
+	
+	description := parts[1]
+	timePart := parts[0]
+	
+	// Extract duration in parentheses
+	durPattern := regexp.MustCompile(`\(([^)]+)\)`)
+	durMatch := durPattern.FindStringSubmatch(timePart)
+	if len(durMatch) != 2 {
+		return nil, fmt.Errorf("duration not found")
+	}
+	
+	duration, err := parseDuration(durMatch[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid duration: %w", err)
+	}
+	
+	// Remove duration from time part
+	timePart = durPattern.ReplaceAllString(timePart, "")
+	timePart = strings.TrimSpace(timePart)
+	
+	// Parse date and time range
+	parts = strings.Split(timePart, " ")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid date-time format")
+	}
+	
+	dateStr := parts[0]
+	timeRange := parts[1]
+	
+	date, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid date: %w", err)
+	}
+	
+	timeRangeParts := strings.Split(timeRange, "-")
+	if len(timeRangeParts) != 2 {
+		return nil, fmt.Errorf("invalid time range")
+	}
+	
+	startTime, err := time.Parse("15:04", timeRangeParts[0])
+	if err != nil {
+		return nil, fmt.Errorf("invalid start time: %w", err)
+	}
+	
+	endTime, err := time.Parse("15:04", timeRangeParts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid end time: %w", err)
+	}
+	
+	// Combine date with times
+	startDateTime := time.Date(date.Year(), date.Month(), date.Day(), 
+		startTime.Hour(), startTime.Minute(), 0, 0, time.Local)
+	endDateTime := time.Date(date.Year(), date.Month(), date.Day(), 
+		endTime.Hour(), endTime.Minute(), 0, 0, time.Local)
+	
+	return &TimeEntry{
+		Date:        date,
+		StartTime:   startDateTime,
+		EndTime:     endDateTime,
+		Duration:    duration,
+		Description: description,
+	}, nil
+}
+
+// parseDuration parses duration strings like "1h15m", "30m", "2h"
+func parseDuration(s string) (time.Duration, error) {
+	// Handle common formats
+	s = strings.ToLower(s)
+	
+	// Try Go's built-in duration parser first
+	if d, err := time.ParseDuration(s); err == nil {
+		return d, nil
+	}
+	
+	// Handle formats like "1h15m", "45m", "2h"
+	var hours, minutes int
+	var err error
+	
+	if strings.Contains(s, "h") && strings.Contains(s, "m") {
+		parts := strings.Split(s, "h")
+		if len(parts) != 2 {
+			return 0, fmt.Errorf("invalid duration format")
+		}
+		hours, err = strconv.Atoi(parts[0])
+		if err != nil {
+			return 0, err
+		}
+		minuteStr := strings.TrimSuffix(parts[1], "m")
+		minutes, err = strconv.Atoi(minuteStr)
+		if err != nil {
+			return 0, err
+		}
+	} else if strings.Contains(s, "h") {
+		hourStr := strings.TrimSuffix(s, "h")
+		hours, err = strconv.Atoi(hourStr)
+		if err != nil {
+			return 0, err
+		}
+	} else if strings.Contains(s, "m") {
+		minuteStr := strings.TrimSuffix(s, "m")
+		minutes, err = strconv.Atoi(minuteStr)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		return 0, fmt.Errorf("invalid duration format")
+	}
+	
+	return time.Duration(hours)*time.Hour + time.Duration(minutes)*time.Minute, nil
+}
+
+// formatDuration formats a duration for display
+func formatDuration(d time.Duration) string {
+	if d == 0 {
+		return "0m"
+	}
+	
+	hours := int(d.Hours())
+	minutes := int(d.Minutes()) % 60
+	
+	if hours > 0 && minutes > 0 {
+		return fmt.Sprintf("%dh%dm", hours, minutes)
+	} else if hours > 0 {
+		return fmt.Sprintf("%dh", hours)
+	} else {
+		return fmt.Sprintf("%dm", minutes)
+	}
+}
+
+// formatTimeEntry formats a time entry for markdown output
+func formatTimeEntry(entry TimeEntry) string {
+	dateStr := entry.Date.Format("2006-01-02")
+	startStr := entry.StartTime.Format("15:04")
+	endStr := entry.EndTime.Format("15:04")
+	durationStr := formatDuration(entry.Duration)
+	
+	return fmt.Sprintf("  • %s %s-%s (%s) - %s", 
+		dateStr, startStr, endStr, durationStr, entry.Description)
+}
+
+// TimerState represents the current timer state
+type TimerState struct {
+	IsActive    bool          `json:"is_active"`
+	TaskText    string        `json:"task_text"`
+	FilePath    string        `json:"file_path"`
+	TaskLine    int           `json:"task_line"`
+	StartTime   time.Time     `json:"start_time"`
+	IsPaused    bool          `json:"is_paused"`
+	PausedTime  time.Time     `json:"paused_time"`
+	TotalPaused time.Duration `json:"total_paused"`
+}
+
+// Timer state file management
+func (s *Service) getTimerStatePath() string {
+	return filepath.Join(s.config.BaseDir, ".timer_state.json")
+}
+
+func (s *Service) saveTimerState(state TimerState) error {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.getTimerStatePath(), data, 0644)
+}
+
+func (s *Service) loadTimerState() (TimerState, error) {
+	var state TimerState
+	data, err := os.ReadFile(s.getTimerStatePath())
+	if err != nil {
+		return state, err
+	}
+	err = json.Unmarshal(data, &state)
+	return state, err
+}
+
+func (s *Service) clearTimerState() error {
+	return os.Remove(s.getTimerStatePath())
+}
+
+// findTaskByText searches for a task by partial text match
+func (s *Service) findTaskByText(searchText string) (*TaskInfo, error) {
+	searchDirs := []string{"daily", "projects", "meetings", "design", "learning", "todos"}
+	searchLower := strings.ToLower(searchText)
+	
+	var matches []TaskInfo
+	
+	for _, dir := range searchDirs {
+		dirPath := filepath.Join(s.config.BaseDir, dir)
+		
+		err := filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			
+			if d.IsDir() || (!strings.HasSuffix(path, ".md") && !strings.HasSuffix(path, ".txt")) {
+				return nil
+			}
+			
+			tasks := s.extractTasks(path)
+			for _, task := range tasks {
+				if strings.Contains(strings.ToLower(task.Text), searchLower) {
+					matches = append(matches, task)
+				}
+			}
+			
+			return nil
+		})
+		
+		if err != nil {
+			continue
+		}
+	}
+	
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no task found matching: %s", searchText)
+	}
+	
+	if len(matches) == 1 {
+		return &matches[0], nil
+	}
+	
+	// Multiple matches - return the best one (exact match preferred)
+	for _, match := range matches {
+		if strings.EqualFold(match.Text, searchText) {
+			return &match, nil
+		}
+	}
+	
+	// Return first match if no exact match
+	return &matches[0], nil
+}
+
+// addTimeEntry adds a time entry to a task in its markdown file
+func (s *Service) addTimeEntry(state TimerState, duration time.Duration) error {
+	// Read the file
+	content, err := os.ReadFile(state.FilePath)
+	if err != nil {
+		return err
+	}
+	
+	lines := strings.Split(string(content), "\n")
+	if state.TaskLine > len(lines) {
+		return fmt.Errorf("task line %d not found in file", state.TaskLine)
+	}
+	
+	// Create time entry
+	entry := TimeEntry{
+		Date:        state.StartTime,
+		StartTime:   state.StartTime,
+		EndTime:     state.StartTime.Add(duration),
+		Duration:    duration,
+		Description: "Work session", // Could be made configurable
+	}
+	
+	// Find insertion point (after the task line)
+	insertLine := state.TaskLine
+	
+	// Look for existing "Time log:" line
+	timeLogExists := false
+	for i := state.TaskLine; i < len(lines) && i < state.TaskLine+10; i++ {
+		if strings.Contains(lines[i], "Time log:") {
+			timeLogExists = true
+			// Find where to insert new entry (before "Remaining:" or "Total:" if they exist)
+			insertLine = i + 1
+			for j := i + 1; j < len(lines) && strings.HasPrefix(lines[j], "  "); j++ {
+				if strings.Contains(lines[j], "Remaining:") || strings.Contains(lines[j], "Total:") {
+					insertLine = j
+					break
+				}
+				if strings.HasPrefix(lines[j], "  •") {
+					insertLine = j + 1
+				}
+			}
+			break
+		}
+		// Stop if we hit another task or non-indented content
+		if !strings.HasPrefix(lines[i], "  ") && strings.TrimSpace(lines[i]) != "" && i > state.TaskLine {
+			break
+		}
+	}
+	
+	// Insert time log block if it doesn't exist
+	if !timeLogExists {
+		newLines := make([]string, 0, len(lines)+3)
+		newLines = append(newLines, lines[:insertLine]...)
+		newLines = append(newLines, "  Time log:")
+		newLines = append(newLines, formatTimeEntry(entry))
+		newLines = append(newLines, lines[insertLine:]...)
+		lines = newLines
+	} else {
+		// Insert just the time entry
+		newLines := make([]string, 0, len(lines)+1)
+		newLines = append(newLines, lines[:insertLine]...)
+		newLines = append(newLines, formatTimeEntry(entry))
+		newLines = append(newLines, lines[insertLine:]...)
+		lines = newLines
+	}
+	
+	// Write back to file
+	newContent := strings.Join(lines, "\n")
+	return os.WriteFile(state.FilePath, []byte(newContent), 0644)
 }

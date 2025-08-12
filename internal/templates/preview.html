@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.Title}}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&family=Roboto:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        body { 
+            font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif; 
+            line-height: 1.7; 
+            margin: 0; 
+            padding: 40px 60px; 
+            background: #fafafa;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 50px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+        h1, h2, h3, h4, h5, h6 { 
+            font-family: 'Lora', serif;
+            color: #2c3e50; 
+            font-weight: 600;
+        }
+        h1 { 
+            font-size: 2.5rem; 
+            margin-bottom: 30px;
+            border-bottom: 4px solid #000;
+            padding-bottom: 15px;
+        }
+        h2 { font-size: 2rem; margin-top: 40px; margin-bottom: 20px; }
+        h3 { font-size: 1.5rem; margin-top: 30px; margin-bottom: 15px; }
+        p { margin-bottom: 20px; }
+        code { 
+            font-family: 'JetBrains Mono', 'Monaco', 'Menlo', monospace;
+            background-color: #f1f5f9; 
+            padding: 3px 6px; 
+            border-radius: 4px; 
+            font-size: 0.9em;
+            color: #e53e3e;
+        }
+        pre { 
+            font-family: 'JetBrains Mono', 'Monaco', 'Menlo', monospace;
+            background-color: #1a202c; 
+            color: #e2e8f0;
+            border-radius: 8px; 
+            padding: 20px; 
+            overflow-x: auto; 
+            margin: 20px 0;
+        }
+        pre code { 
+            background: none; 
+            padding: 0; 
+            color: inherit;
+        }
+        blockquote { 
+            border-left: 4px solid #000; 
+            margin: 20px 0; 
+            padding-left: 20px; 
+            color: #4a5568; 
+            font-style: italic;
+        }
+        table { 
+            border-collapse: collapse; 
+            width: 100%; 
+            margin: 20px 0;
+        }
+        th, td { 
+            border: 1px solid #e2e8f0; 
+            padding: 12px 16px; 
+            text-align: left; 
+        }
+        th { 
+            background-color: #f7fafc; 
+            font-weight: 600;
+        }
+        .mermaid { 
+            text-align: center; 
+            margin: 30px 0; 
+        }
+        .back-link { 
+            display: inline-block; 
+            margin-bottom: 30px; 
+            text-decoration: none; 
+            color: #2c5282; 
+            font-weight: 500;
+            transition: color 0.2s ease;
+        }
+        .back-link:hover { 
+            color: #000;
+            text-decoration: underline; 
+        }
+        ul, ol { margin-bottom: 20px; }
+        li { margin-bottom: 8px; }
+        /* Task list styling */
+        ul li[data-task] { list-style: none; margin-left: -20px; }
+        input[type="checkbox"] { margin-right: 8px; }
+        input[type="checkbox"]:checked + * { text-decoration: line-through; opacity: 0.6; }
+        /* Bullet points */
+        ul li:not([data-task]):before {
+            content: "•";
+            color: #000;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        ul li:not([data-task]) { list-style: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Back to file list</a>
+        <div id="content">{{.Content}}</div>
+    </div>
+    
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                primaryColor: '#0066cc',
+                primaryTextColor: '#333',
+                primaryBorderColor: '#0066cc',
+                lineColor: '#666',
+                secondaryColor: '#f4f4f4',
+                tertiaryColor: '#fff'
+            }
+        });
+
+        // Convert code blocks with language 'mermaid' to mermaid diagrams
+        document.addEventListener('DOMContentLoaded', function() {
+            const codeBlocks = document.querySelectorAll('pre code');
+            codeBlocks.forEach(function(block) {
+                const text = block.textContent.trim();
+                if (text.startsWith('graph ') || text.startsWith('flowchart ') || 
+                    text.startsWith('sequenceDiagram') || text.startsWith('classDiagram') ||
+                    text.startsWith('gantt') || text.startsWith('gitGraph') ||
+                    text.startsWith('erDiagram') || text.startsWith('journey') ||
+                    text.startsWith('pie ') || text.startsWith('stateDiagram')) {
+                    
+                    const mermaidDiv = document.createElement('div');
+                    mermaidDiv.className = 'mermaid';
+                    mermaidDiv.textContent = text;
+                    block.parentNode.replaceWith(mermaidDiv);
+                }
+            });
+            
+            // Re-initialize mermaid after adding new diagrams
+            mermaid.init();
+        });
+    </script>
+</body>
+</html>

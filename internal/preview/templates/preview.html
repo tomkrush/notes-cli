@@ -98,8 +98,10 @@
         li { margin-bottom: 8px; }
         /* Task list styling */
         ul li[data-task] { list-style: none; margin-left: -20px; }
-        input[type="checkbox"] { margin-right: 8px; }
-        input[type="checkbox"]:checked + * { text-decoration: line-through; opacity: 0.6; }
+        li input[type="checkbox"] { margin-right: 8px; }
+        li input[type="checkbox"]:checked + * { text-decoration: line-through; opacity: 0.6; }
+        li:has(input[type="checkbox"]) { list-style: none; }
+        li:has(input[type="checkbox"]):before { content: none; }
         /* Bullet points */
         ul li:not([data-task]):before {
             content: "•";

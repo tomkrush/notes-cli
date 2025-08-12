@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -78,12 +79,21 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	html := blackfriday.Run(content)
+	// Configure blackfriday with extensions
+	extensions := blackfriday.CommonExtensions | blackfriday.AutoHeadingIDs
+	html := blackfriday.Run(content, blackfriday.WithExtensions(extensions))
 	
-	// Convert markdown checkboxes to HTML checkboxes
+	// Convert markdown checkboxes to HTML checkboxes using regex
 	htmlStr := string(html)
-	htmlStr = strings.ReplaceAll(htmlStr, "<li>- [ ] ", "<li><input type=\"checkbox\" disabled> ")
-	htmlStr = strings.ReplaceAll(htmlStr, "<li>- [x] ", "<li><input type=\"checkbox\" checked disabled> ")
+	
+	// Match unchecked boxes: <li>[ ] content</li> (including multiline and HTML content)
+	uncheckedRegex := regexp.MustCompile(`(?s)<li>(?:- )?\[ \]\s*(.*?)</li>`)
+	htmlStr = uncheckedRegex.ReplaceAllString(htmlStr, `<li><input type="checkbox" disabled> $1</li>`)
+	
+	// Match checked boxes: <li>[x] content</li> (including multiline and HTML content)
+	checkedRegex := regexp.MustCompile(`(?s)<li>(?:- )?\[x\]\s*(.*?)</li>`)
+	htmlStr = checkedRegex.ReplaceAllString(htmlStr, `<li><input type="checkbox" checked disabled> $1</li>`)
+	
 	html = []byte(htmlStr)
 	
 	t, err := template.New("preview").Parse(previewTemplate)

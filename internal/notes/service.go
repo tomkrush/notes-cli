@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"notes/internal/config"
+	"notes/internal/preview"
 	"notes/internal/templates"
 )
 
@@ -1488,5 +1489,14 @@ func (s *Service) removeDuplicates(items []string) []string {
 	}
 	
 	return result
+}
+
+func (s *Service) StartPreview(port int) error {
+	if port == 0 {
+		port = 8080
+	}
+	
+	server := preview.NewServer(s.config.BaseDir, port)
+	return server.Start()
 }
 

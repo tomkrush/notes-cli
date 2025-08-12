@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"notes/internal/config"
@@ -79,6 +80,17 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error with time command: %v\n", err)
 			os.Exit(1)
 		}
+	case "preview":
+		port := 8080
+		if len(args) > 0 {
+			if p, err := strconv.Atoi(args[0]); err == nil {
+				port = p
+			}
+		}
+		if err := service.StartPreview(port); err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting preview server: %v\n", err)
+			os.Exit(1)
+		}
 	case "search":
 		if len(args) < 1 {
 			fmt.Fprintf(os.Stderr, "Error: search command requires a query\n")
@@ -133,6 +145,7 @@ COMMANDS
   status                       Show changed notes and todos
   time <command>               Time tracking (start/stop/status)
   search <query> [#tags]       Search notes by content/tags
+  preview [port]               Start markdown preview server (default: 8080)
   save [message]               Commit changes to git
 
 GETTING STARTED
@@ -165,9 +178,11 @@ func showCommandHelp(command string) {
 		showSearchHelp()
 	case "markdown":
 		showMarkdownHelp()
+	case "preview":
+		showPreviewHelp()
 	default:
 		fmt.Printf("No detailed help available for '%s'\n", command)
-		fmt.Println("Available help topics: create, tasks, time, search, markdown")
+		fmt.Println("Available help topics: create, tasks, time, search, markdown, preview")
 	}
 }
 
@@ -309,6 +324,41 @@ EXAMPLES
   notes time resume
   notes time stop
   notes time report today`)
+}
+
+func showPreviewHelp() {
+	fmt.Println(`notes preview - Markdown preview server with Mermaid diagrams
+
+USAGE
+  notes preview [port]         # Start server on specified port (default: 8080)
+
+FEATURES
+  - Live markdown rendering with GitHub-flavored styling
+  - Automatic Mermaid diagram rendering from code blocks
+  - File browser to navigate all your notes
+  - Responsive design for mobile viewing
+  - Task list rendering with checkboxes
+
+MERMAID DIAGRAMS
+  Create diagrams using standard mermaid syntax in code blocks:
+  
+  graph TD
+      A[Start] --> B{Decision}
+      B -->|Yes| C[Action 1]
+      B -->|No| D[Action 2]
+  
+  sequenceDiagram
+      User->>Server: Request
+      Server->>Database: Query
+      Database-->>Server: Response
+      Server-->>User: Response
+
+EXAMPLES
+  notes preview                # Start server on port 8080
+  notes preview 3000           # Start server on port 3000
+  
+The server will display a file browser at the root and render any .md file
+when clicked. The preview updates automatically when you save changes to files.`)
 }
 
 func parseTaskFilters(args []string) notes.TaskFilters {
